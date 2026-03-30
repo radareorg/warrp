@@ -537,6 +537,12 @@ impl WarpContainer {
             self.cache.initialize(core);
         }
         
+        // Set target from binary if not already set
+        if self.target.is_none() {
+            let (arch, platform) = crate::r2::analysis::get_arch_info(core);
+            self.target = Some(Target::new(arch, platform));
+        }
+        
         // Use cached GUID computation
         let guid_uuid = self.cache.get_or_compute_guid(core, addr)
             .ok_or_else(|| format!("Failed to compute GUID for 0x{:x}", addr))?;
