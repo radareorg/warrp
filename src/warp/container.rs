@@ -3,11 +3,20 @@ use std::path::Path;
 use std::fs::File;
 use std::io::Read;
 
+use uuid::Uuid;
+
 use crate::r2::ffi::RCore;
 use crate::r2::guid::FunctionGUID as R2FunctionGUID;
 use crate::r2::analysis::RelocatableRegion;
-use crate::warp::signature::{Function, FunctionGUID, Symbol};
+use crate::warp::signature::{Constraint, Function, FunctionGUID, Symbol};
 use crate::warp::types::Target;
+
+use crate::warp::constraint::ConstraintBuilder;
+
+enum ConstraintType {
+    Guid(Uuid),
+    Symbol(String),
+}
 
 #[derive(Debug)]
 pub struct WarpFile {
@@ -18,10 +27,9 @@ pub struct WarpFile {
 pub struct WarpContainer {
     loaded_files: Vec<WarpFile>,
     target: Option<Target>,
-    /// GUID -> Functions lookup
     functions: HashMap<[u8; 16], Vec<Function>>,
-    /// Function count for quick access
     function_count: usize,
+    constraint_builder: ConstraintBuilder,
 }
 
 impl WarpContainer {
@@ -31,6 +39,7 @@ impl WarpContainer {
             target: None,
             functions: HashMap::new(),
             function_count: 0,
+            constraint_builder: ConstraintBuilder::new(),
         }
     }
     
@@ -185,6 +194,7 @@ impl WarpContainer {
         use warp::signature::chunk::SignatureChunk;
         use warp::signature::function::Function as WarpFunction;
         use warp::signature::function::FunctionGUID as WarpFunctionGUID;
+        use warp::signature::constraint::Constraint as WarpConstraint;
         use warp::symbol::Symbol as WarpSymbol;
         use warp::symbol::SymbolClass;
         use warp::symbol::SymbolModifiers;
@@ -193,7 +203,6 @@ impl WarpContainer {
         use warp::{WarpFile, WarpFileHeader};
         use uuid::Uuid;
         
-        // Convert our functions to warp format
         let warp_functions: Vec<WarpFunction> = self.functions
             .values()
             .flat_map(|funcs| funcs.iter())
@@ -214,11 +223,40 @@ impl WarpContainer {
                     }).collect(),
                 );
                 
+                let warp_constraints: HashSet<WarpConstraint> = f.constraints.iter()
+                    .filter_map(|c| {
+                        if let Some(guid) = &c.guid {
+                            Some(WarpConstraint::from_function(
+                                &WarpFunctionGUID::from(Uuid::from_bytes(guid.bytes)),
+                                Some(c.offset),
+                            ))
+                        } else if let Some(sym) = &c.symbol {
+                            let warp_sym = WarpSymbol::new(
+                                sym.name.clone(),
+                                match sym.class {
+                                    crate::warp::signature::SymbolClass::Function => SymbolClass::Function,
+                                    crate::warp::signature::SymbolClass::Data => SymbolClass::Data,
+                                    crate::warp::signature::SymbolClass::Bare => SymbolClass::Bare,
+                                },
+                                sym.modifiers.iter().map(|m| {
+                                    match m {
+                                        crate::warp::signature::SymbolModifiers::External => SymbolModifiers::External,
+                                        crate::warp::signature::SymbolModifiers::Exported => SymbolModifiers::Exported,
+                                    }
+                                }).collect(),
+                            );
+                            Some(WarpConstraint::from_symbol(&warp_sym, Some(c.offset)))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                
                 WarpFunction {
                     guid,
                     symbol,
                     ty: None,
-                    constraints: HashSet::new(),
+                    constraints: warp_constraints,
                     comments: f.comments.iter().map(|c| {
                         FunctionComment {
                             offset: c.offset,
@@ -279,6 +317,211 @@ impl WarpContainer {
         self.functions.get(&bytes).map(|v| v.as_slice())
     }
     
+    /// Match function with constraint-based disambiguation
+    /// 
+    /// When multiple functions have the same GUID, use constraints to pick the best match.
+    /// Returns (function index, match score) for each candidate.
+    pub unsafe fn match_with_constraints(
+        &self,
+        core: *mut RCore,
+        addr: u64,
+        regions: &[RelocatableRegion],
+    ) -> Option<Vec<(&Function, usize)>> {
+        let guid = crate::r2::guid::compute_function_guid(core, addr, regions).ok()?;
+        let candidates = self.find_by_guid(&guid)?;
+        
+        if candidates.is_empty() {
+            return None;
+        }
+        
+        // If only one candidate, no need to check constraints
+        if candidates.len() == 1 {
+            return Some(vec![(candidates.first()?, 100)]);
+        }
+        
+        // Collect constraints from the binary for this function
+        let binary_constraints = self.collect_binary_constraints(core, addr, regions);
+        
+        // Score each candidate by constraint matches
+        let mut scored: Vec<_> = candidates
+            .iter()
+            .map(|candidate| {
+                let score = self.score_constraint_match(&binary_constraints, &candidate.constraints);
+                (candidate, score)
+            })
+            .collect();
+        
+        // Sort by score descending
+        scored.sort_by(|a, b| b.1.cmp(&a.1));
+        
+        Some(scored)
+    }
+    
+    /// Collect constraints for a function in the current binary
+    unsafe fn collect_binary_constraints(
+        &self,
+        core: *mut RCore,
+        addr: u64,
+        regions: &[RelocatableRegion],
+    ) -> Vec<(i64, ConstraintType)> {
+        use crate::warp::constraint::clean_symbol_name;
+        
+        let mut constraints = Vec::new();
+        
+        // Get function start
+        let func_start = match crate::r2::analysis::get_function_at(core, addr) {
+            Some(f) => f.addr,
+            None => return constraints,
+        };
+        
+        // Collect call site constraints
+        let cmd = std::ffi::CString::new(format!("axfj @ 0x{:x}", addr)).unwrap();
+        let result = crate::r2::ffi::r_core_cmd_str(core, cmd.as_ptr());
+        
+        if !result.is_null() {
+            let json_str = std::ffi::CStr::from_ptr(result)
+                .to_string_lossy()
+                .into_owned();
+            crate::r2::ffi::free(result as *mut _);
+            
+            if let Ok(xrefs) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
+                for xref in xrefs {
+                    let ref_type = xref.get("type")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("");
+                    
+                    if ref_type != "CALL" {
+                        continue;
+                    }
+                    
+                    let call_site = xref.get("from").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let call_target = xref.get("to").and_then(|v| v.as_u64()).unwrap_or(0);
+                    
+                    if call_target == 0 {
+                        continue;
+                    }
+                    
+                    let offset = call_site as i64 - func_start as i64;
+                    
+                    // Try to get GUID for target
+                    if let Ok(target_guid) = crate::r2::guid::compute_function_guid(core, call_target, regions) {
+                        constraints.push((offset, ConstraintType::Guid(target_guid.guid)));
+                    }
+                    
+                    // Also try symbol name
+                    let sym_cmd = std::ffi::CString::new(format!("is.j @ 0x{:x}", call_target)).unwrap();
+                    let sym_result = crate::r2::ffi::r_core_cmd_str(core, sym_cmd.as_ptr());
+                    if !sym_result.is_null() {
+                        let sym_str = std::ffi::CStr::from_ptr(sym_result)
+                            .to_string_lossy()
+                            .into_owned();
+                        crate::r2::ffi::free(sym_result as *mut _);
+                        
+                        if let Ok(symbols) = serde_json::from_str::<Vec<serde_json::Value>>(&sym_str) {
+                            if let Some(name) = symbols.first().and_then(|s| s.get("name")).and_then(|n| n.as_str()) {
+                                let cleaned = clean_symbol_name(name);
+                                constraints.push((offset, ConstraintType::Symbol(cleaned)));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Collect adjacency constraints
+        let all_funcs = crate::r2::analysis::get_all_functions(core);
+        let mut sorted_funcs: Vec<u64> = all_funcs.into_iter().collect();
+        sorted_funcs.sort();
+        
+        if let Ok(pos) = sorted_funcs.binary_search(&addr) {
+            // Up to 2 before
+            let start = pos.saturating_sub(2);
+            for i in start..pos {
+                let adj_addr = sorted_funcs[i];
+                let offset = adj_addr as i64 - func_start as i64;
+                
+                if let Ok(guid) = crate::r2::guid::compute_function_guid(core, adj_addr, regions) {
+                    constraints.push((offset, ConstraintType::Guid(guid.guid)));
+                }
+                
+                if let Some(adj_info) = crate::r2::analysis::get_function_at(core, adj_addr) {
+                    if let Some(name) = adj_info.name {
+                        let cleaned = clean_symbol_name(&name);
+                        constraints.push((offset, ConstraintType::Symbol(cleaned)));
+                    }
+                }
+            }
+            
+            // Up to 2 after
+            let end = (pos + 3).min(sorted_funcs.len());
+            for i in (pos + 1)..end {
+                let adj_addr = sorted_funcs[i];
+                let offset = adj_addr as i64 - func_start as i64;
+                
+                if let Ok(guid) = crate::r2::guid::compute_function_guid(core, adj_addr, regions) {
+                    constraints.push((offset, ConstraintType::Guid(guid.guid)));
+                }
+                
+                if let Some(adj_info) = crate::r2::analysis::get_function_at(core, adj_addr) {
+                    if let Some(name) = adj_info.name {
+                        let cleaned = clean_symbol_name(&name);
+                        constraints.push((offset, ConstraintType::Symbol(cleaned)));
+                    }
+                }
+            }
+        }
+        
+        constraints
+    }
+    
+    /// Score how well binary constraints match signature constraints
+    fn score_constraint_match(
+        &self,
+        binary_constraints: &[(i64, ConstraintType)],
+        sig_constraints: &[Constraint],
+    ) -> usize {
+        if sig_constraints.is_empty() {
+            return 50; // No constraints to match against
+        }
+        
+        let mut matches = 0;
+        let mut total = sig_constraints.len();
+        
+        for sig_c in sig_constraints {
+            for (offset, binary_c) in binary_constraints {
+                // Check offset match (allow small tolerance)
+                let offset_diff = (sig_c.offset - offset).abs();
+                if offset_diff > 16 {
+                    continue;
+                }
+                
+                // Check GUID match
+                if let Some(sig_guid) = &sig_c.guid {
+                    if let ConstraintType::Guid(binary_guid) = binary_c {
+                        let sig_uuid = sig_guid.to_uuid();
+                        if sig_uuid == *binary_guid {
+                            matches += 1;
+                            break;
+                        }
+                    }
+                }
+                
+                // Check symbol match
+                if let Some(sig_sym) = &sig_c.symbol {
+                    if let ConstraintType::Symbol(binary_sym) = binary_c {
+                        if sig_sym.name == *binary_sym {
+                            matches += 1;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        
+        // Return percentage match
+        (matches * 100) / total.max(1)
+    }
+    
     /// Add a function from radare2 analysis
     pub unsafe fn add_function_from_binary(
         &mut self,
@@ -286,16 +529,20 @@ impl WarpContainer {
         addr: u64,
         regions: &[RelocatableRegion],
     ) -> Result<FunctionGUID, String> {
-        // Compute GUID from the function
         let guid = crate::r2::guid::compute_function_guid(core, addr, regions)?;
         
-        // Get function name
         let func_info = crate::r2::analysis::get_function_at(core, addr);
         let name = func_info
             .and_then(|f| f.name)
             .unwrap_or_else(|| format!("fcn_{:08x}", addr));
         
-        let func = Function::new(FunctionGUID::from_uuid(guid.guid), Symbol::function(name));
+        // Collect constraints
+        let constraints = self.constraint_builder.call_site_constraints(core, addr, regions);
+        let mut all_constraints = constraints;
+        all_constraints.extend(self.constraint_builder.adjacency_constraints(core, addr, regions));
+        
+        let mut func = Function::new(FunctionGUID::from_uuid(guid.guid), Symbol::function(name));
+        func.constraints = all_constraints.into_iter().collect();
         
         let guid_bytes = func.guid.bytes;
         self.functions

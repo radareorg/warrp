@@ -18,7 +18,38 @@ pub struct BasicBlockInfo {
     pub size: u64,
 }
 
-/// Get all functions in the current binary
+pub unsafe fn run_minimal_analysis(core: *mut RCore) {
+    let cmd = CString::new("aa").unwrap();
+    r_core_cmd(core, cmd.as_ptr());
+}
+
+pub unsafe fn ensure_functions_exist(core: *mut RCore) -> bool {
+    let functions = get_all_functions(core);
+    if functions.is_empty() {
+        print_status(core, "No functions found. Running 'aa' to analyze binary...");
+        run_minimal_analysis(core);
+        
+        // Small delay for analysis to complete
+        let cons = crate::r2::ffi::r_core_get_cons(core);
+        crate::r2::ffi::r_cons_flush(cons);
+        
+        let functions_after = get_all_functions(core);
+        if functions_after.is_empty() {
+            print_status(core, "Still no functions. Trying 'aaa' for deeper analysis...");
+            let cmd = CString::new("aaa").unwrap();
+            r_core_cmd(core, cmd.as_ptr());
+            crate::r2::ffi::r_cons_flush(cons);
+            
+            let functions_final = get_all_functions(core);
+            !functions_final.is_empty()
+        } else {
+            true
+        }
+    } else {
+        true
+    }
+}
+
 pub unsafe fn get_all_functions(core: *mut RCore) -> Vec<u64> {
     let mut functions = Vec::new();
     
@@ -76,8 +107,14 @@ pub unsafe fn get_function_at(core: *mut RCore, addr: u64) -> Option<FunctionInf
     }
     
     let func = &funcs[0];
+    
+    // Try both "offset" and "addr" fields (r2 uses different field names)
+    let func_addr = func.get("offset")
+        .or_else(|| func.get("addr"))
+        .and_then(|v| v.as_u64())?;
+    
     Some(FunctionInfo {
-        addr: func.get("offset")?.as_u64()?,
+        addr: func_addr,
         size: func.get("size").and_then(|v| v.as_u64()).unwrap_or(0),
         name: func.get("name").and_then(|v| v.as_str()).map(|s| s.to_string()),
     })
@@ -244,7 +281,12 @@ pub unsafe fn get_arch_info(core: *mut RCore) -> (String, String) {
     (arch, platform)
 }
 
-/// Check if interactive mode is enabled
+pub unsafe fn print_status(core: *mut RCore, msg: &str) {
+    let c_str = CString::new(format!("{}\n", msg)).unwrap();
+    let cons = crate::r2::ffi::r_core_get_cons(core);
+    crate::r2::ffi::r_cons_print(cons, c_str.as_ptr());
+}
+
 pub unsafe fn is_interactive(core: *mut RCore) -> bool {
     let cmd = CString::new("e scr.interactive").unwrap();
     let result = r_core_cmd_str(core, cmd.as_ptr());

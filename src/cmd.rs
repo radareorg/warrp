@@ -1,7 +1,7 @@
 use std::ffi::CString;
 use std::path::Path;
 
-use crate::r2::ffi::{RCore, r_cons_print};
+use crate::r2::ffi::{RCore, r_cons_print, r_core_cmd_str, free};
 use crate::r2::analysis;
 use crate::r2::guid::compute_function_guid;
 use crate::warp::container::WarpContainer;
@@ -149,6 +149,11 @@ unsafe fn cmd_match(
         return false;
     }
     
+    if !analysis::ensure_functions_exist(core) {
+        show_error(core, "No functions found after analysis. Binary may be unsupported.");
+        return false;
+    }
+    
     let match_all = args.contains(&"-a");
     
     if match_all {
@@ -174,7 +179,7 @@ unsafe fn cmd_match_all(core: *mut RCore, container: &WarpContainer) -> bool {
     
     let functions = analysis::get_all_functions(core);
     if functions.is_empty() {
-        show_error(core, "No functions found in current binary. Run 'aa' first.");
+        show_error(core, "No functions found in current binary.");
         return false;
     }
     
@@ -182,39 +187,67 @@ unsafe fn cmd_match_all(core: *mut RCore, container: &WarpContainer) -> bool {
     
     let mut matched = 0u64;
     let mut unmatched = 0u64;
+    let mut ambiguous = 0u64;
     
     for fcn_addr in &functions {
-        match compute_function_guid(core, *fcn_addr, &regions) {
-            Ok(guid) => {
-                if let Some(matches) = container.find_by_guid(&guid) {
-                    if !matches.is_empty() {
-                        let name = &matches[0].symbol.name;
-                        analysis::apply_function_metadata(core, *fcn_addr, &matches[0]);
-                        print_str(core, &format!(
-                            "0x{:08x}: {} -> {}\n",
-                            fcn_addr,
-                            guid,
-                            name
-                        ));
-                        matched += 1;
+        match container.match_with_constraints(core, *fcn_addr, &regions) {
+            Some(candidates) => {
+                if let Some((best, _score)) = candidates.first() {
+                    analysis::apply_function_metadata(core, *fcn_addr, best);
+                    let extra = if candidates.len() > 1 {
+                        format!(" ({} candidates)", candidates.len())
                     } else {
-                        unmatched += 1;
+                        String::new()
+                    };
+                    print_str(core, &format!(
+                        "0x{:08x}: {} -> {}{}\n",
+                        fcn_addr,
+                        best.guid,
+                        best.symbol.name,
+                        extra
+                    ));
+                    matched += 1;
+                    if candidates.len() > 1 {
+                        ambiguous += 1;
                     }
                 } else {
                     unmatched += 1;
                 }
             }
-            Err(e) => {
-                print_str(core, &format!("0x{:08x}: Error computing GUID: {}\n", fcn_addr, e));
-                unmatched += 1;
+            None => {
+                match compute_function_guid(core, *fcn_addr, &regions) {
+                    Ok(guid) => {
+                        if let Some(matches) = container.find_by_guid(&guid) {
+                            if !matches.is_empty() {
+                                let name = &matches[0].symbol.name;
+                                analysis::apply_function_metadata(core, *fcn_addr, &matches[0]);
+                                print_str(core, &format!(
+                                    "0x{:08x}: {} -> {}\n",
+                                    fcn_addr,
+                                    guid,
+                                    name
+                                ));
+                                matched += 1;
+                            } else {
+                                unmatched += 1;
+                            }
+                        } else {
+                            unmatched += 1;
+                        }
+                    }
+                    Err(_) => {
+                        unmatched += 1;
+                    }
+                }
             }
         }
     }
     
     print_str(core, &format!(
-        "Matched: {} / {}\n",
+        "Matched: {} / {} (ambiguous: {})\n",
         matched,
-        matched + unmatched
+        matched + unmatched,
+        ambiguous
     ));
     
     true
@@ -229,6 +262,33 @@ unsafe fn cmd_match_single(
     
     let regions = analysis::get_relocatable_regions(core);
     
+    // Try constraint-based matching first
+    match container.match_with_constraints(core, addr, &regions) {
+        Some(candidates) => {
+            print_str(core, &format!("Found {} candidate(s) by GUID:\n", candidates.len()));
+            
+            for (i, (func, _score)) in candidates.iter().enumerate() {
+                let marker = if i == 0 { "*" } else { " " };
+                print_str(core, &format!(
+                    "  {}{}. {} ({} constraints)\n",
+                    marker,
+                    i + 1,
+                    func.symbol.name,
+                    func.constraints.len()
+                ));
+            }
+            
+            // Apply best match
+            if let Some((best, _score)) = candidates.first() {
+                analysis::apply_function_metadata(core, addr, best);
+                print_str(core, &format!("Applied: {}\n", best.symbol.name));
+            }
+            return true;
+        }
+        None => {}
+    }
+    
+    // Fallback to GUID-only matching
     let guid = match compute_function_guid(core, addr, &regions) {
         Ok(g) => g,
         Err(e) => {
@@ -237,7 +297,7 @@ unsafe fn cmd_match_single(
         }
     };
     
-    print_str(core, &format!("Function GUID: {}\n", guid));
+    print_str(core, &format!("Function GUID: {} (no constraint matches)\n", guid));
     
     match container.find_by_guid(&guid) {
         Some(matches) if !matches.is_empty() => {
@@ -256,7 +316,7 @@ unsafe fn cmd_match_single(
                 analysis::apply_function_metadata(core, addr, &matches[0]);
                 print_str(core, &format!("Applied: {}\n", name));
             } else {
-                print_str(core, "Multiple matches found. Use index to apply manually.\n");
+                print_str(core, "Multiple matches found. Use constraints to disambiguate.\n");
             }
             true
         }
@@ -293,9 +353,14 @@ unsafe fn cmd_create(
 }
 
 unsafe fn cmd_create_all(core: *mut RCore, container: &mut WarpContainer) -> bool {
+    if !analysis::ensure_functions_exist(core) {
+        show_error(core, "No functions found after analysis. Binary may be unsupported.");
+        return false;
+    }
+    
     let functions = analysis::get_all_functions(core);
     if functions.is_empty() {
-        show_error(core, "No functions found. Run 'aa' first.");
+        show_error(core, "No functions found in current binary.");
         return false;
     }
     
@@ -422,7 +487,16 @@ unsafe fn show_error(core: *mut RCore, msg: &str) {
 
 unsafe fn parse_address(core: *mut RCore, addr_str: &str) -> u64 {
     if addr_str == "$$" {
-        0 // Would need to get current offset from core
+        let cmd = CString::new("s").unwrap();
+        let result = r_core_cmd_str(core, cmd.as_ptr());
+        if result.is_null() {
+            return 0;
+        }
+        let s = std::ffi::CStr::from_ptr(result)
+            .to_string_lossy()
+            .into_owned();
+        free(result as *mut _);
+        return u64::from_str_radix(s.trim().trim_start_matches("0x"), 16).unwrap_or(0);
     } else if addr_str.starts_with("0x") || addr_str.starts_with("0X") {
         u64::from_str_radix(&addr_str[2..], 16).unwrap_or(0)
     } else {

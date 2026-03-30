@@ -1,4 +1,5 @@
 use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
 
 use crate::r2::guid::FunctionGUID as R2FunctionGUID;
 
@@ -33,24 +34,36 @@ impl From<R2FunctionGUID> for FunctionGUID {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum SymbolModifiers {
     External = 0,
     Exported = 1,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SymbolClass {
     Function = 0,
     Data = 1,
     Bare = 2,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Symbol {
     pub name: String,
     pub modifiers: HashSet<SymbolModifiers>,
     pub class: SymbolClass,
+}
+
+impl Hash for Symbol {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.name.hash(state);
+        self.class.hash(state);
+        let mut mods: Vec<_> = self.modifiers.iter().collect();
+        mods.sort();
+        for m in mods {
+            m.hash(state);
+        }
+    }
 }
 
 impl Symbol {
@@ -67,10 +80,29 @@ impl Symbol {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
 pub struct Constraint {
-    pub guid: FunctionGUID,
+    pub guid: Option<FunctionGUID>,
+    pub symbol: Option<Symbol>,
     pub offset: i64,
+}
+
+impl Constraint {
+    pub fn from_function(guid: &FunctionGUID, offset: Option<i64>) -> Self {
+        Self {
+            guid: Some(guid.clone()),
+            symbol: None,
+            offset: offset.unwrap_or(0),
+        }
+    }
+
+    pub fn from_symbol(symbol: &Symbol, offset: Option<i64>) -> Self {
+        Self {
+            guid: None,
+            symbol: Some(symbol.clone()),
+            offset: offset.unwrap_or(0),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

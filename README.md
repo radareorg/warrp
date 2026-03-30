@@ -45,10 +45,12 @@ zw save <file>   # Save signatures to WARP file
 zw match [addr]  # Match function at address (or all with -a)
 zw create [addr] # Create WARP signature for function(s)
 zw test <bin> <snap> # Test GUID generation
-zw info          # Show container/target info
-zw clear         # Clear loaded containers
-zw help          # Show help
+zw info           # Show container/target info
+zw clear          # Clear loaded containers
+zw help           # Show help
 ```
+
+**Note:** WARP uses exact GUID matching which requires function boundaries to be known. When you run `zw match` or `zw create`, the plugin will automatically run minimal analysis (`aa`) if no functions are found in the binary. If you want deeper analysis beforehand, run `aa` or `aaa` manually.
 
 ### Examples
 
@@ -124,7 +126,8 @@ r2 -e core_warp=true /path/to/binary
 | Function matching | ✅ Complete |
 | Metadata application | ✅ Complete (names, comments) |
 | Progress display | ✅ Complete (interactive mode) |
-| Constraint matching | ❌ TODO (Phase 5) |
+| Constraint collection | ✅ Complete (adjacency + call sites) |
+| Constraint matching | ✅ Complete (disambiguation) |
 | GUID snapshot testing | ❌ TODO |
 
 ## License

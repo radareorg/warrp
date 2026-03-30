@@ -1,5 +1,4 @@
 use uuid::{Uuid, uuid};
-use std::collections::BTreeMap;
 
 use crate::r2::ffi::RCore;
 use crate::r2::analysis::{RelocatableRegion, BasicBlockInfo, get_function_blocks, disassemble_at};
