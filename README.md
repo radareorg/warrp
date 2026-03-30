@@ -128,6 +128,7 @@ r2 -e core_warp=true /path/to/binary
 | Progress display | ✅ Complete (interactive mode) |
 | Constraint collection | ✅ Complete (adjacency + call sites) |
 | Constraint matching | ✅ Complete (disambiguation) |
+| Performance optimization | ✅ Complete (caching, batch fetch) |
 | GUID snapshot testing | ❌ TODO |
 
 ## License

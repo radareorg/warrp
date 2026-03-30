@@ -8,10 +8,9 @@ use uuid::Uuid;
 use crate::r2::ffi::RCore;
 use crate::r2::guid::FunctionGUID as R2FunctionGUID;
 use crate::r2::analysis::RelocatableRegion;
+use crate::r2::cache::AnalysisCache;
 use crate::warp::signature::{Constraint, Function, FunctionGUID, Symbol};
 use crate::warp::types::Target;
-
-use crate::warp::constraint::ConstraintBuilder;
 
 enum ConstraintType {
     Guid(Uuid),
@@ -29,7 +28,7 @@ pub struct WarpContainer {
     target: Option<Target>,
     functions: HashMap<[u8; 16], Vec<Function>>,
     function_count: usize,
-    constraint_builder: ConstraintBuilder,
+    pub cache: AnalysisCache,
 }
 
 impl WarpContainer {
@@ -39,7 +38,7 @@ impl WarpContainer {
             target: None,
             functions: HashMap::new(),
             function_count: 0,
-            constraint_builder: ConstraintBuilder::new(),
+            cache: AnalysisCache::new(),
         }
     }
     
@@ -317,17 +316,17 @@ impl WarpContainer {
         self.functions.get(&bytes).map(|v| v.as_slice())
     }
     
-    /// Match function with constraint-based disambiguation
-    /// 
-    /// When multiple functions have the same GUID, use constraints to pick the best match.
-    /// Returns (function index, match score) for each candidate.
-    pub unsafe fn match_with_constraints(
-        &self,
-        core: *mut RCore,
-        addr: u64,
-        regions: &[RelocatableRegion],
-    ) -> Option<Vec<(&Function, usize)>> {
-        let guid = crate::r2::guid::compute_function_guid(core, addr, regions).ok()?;
+        // Match function with constraint-based disambiguation
+        /// 
+        /// When multiple functions have the same GUID, use constraints to pick the best match.
+        /// Returns (function index, match score) for each candidate.
+        pub unsafe fn match_with_constraints(
+            &self,
+            core: *mut RCore,
+            addr: u64,
+            regions: &[RelocatableRegion],
+        ) -> Option<Vec<(&Function, usize)>> {
+            let guid = crate::r2::guid::compute_function_guid(core, addr, regions, None).ok()?;
         let candidates = self.find_by_guid(&guid)?;
         
         if candidates.is_empty() {
@@ -404,7 +403,7 @@ impl WarpContainer {
                     let offset = call_site as i64 - func_start as i64;
                     
                     // Try to get GUID for target
-                    if let Ok(target_guid) = crate::r2::guid::compute_function_guid(core, call_target, regions) {
+                    if let Ok(target_guid) = crate::r2::guid::compute_function_guid(core, call_target, regions, None) {
                         constraints.push((offset, ConstraintType::Guid(target_guid.guid)));
                     }
                     
@@ -440,7 +439,7 @@ impl WarpContainer {
                 let adj_addr = sorted_funcs[i];
                 let offset = adj_addr as i64 - func_start as i64;
                 
-                if let Ok(guid) = crate::r2::guid::compute_function_guid(core, adj_addr, regions) {
+                if let Ok(guid) = crate::r2::guid::compute_function_guid(core, adj_addr, regions, None) {
                     constraints.push((offset, ConstraintType::Guid(guid.guid)));
                 }
                 
@@ -458,7 +457,7 @@ impl WarpContainer {
                 let adj_addr = sorted_funcs[i];
                 let offset = adj_addr as i64 - func_start as i64;
                 
-                if let Ok(guid) = crate::r2::guid::compute_function_guid(core, adj_addr, regions) {
+                if let Ok(guid) = crate::r2::guid::compute_function_guid(core, adj_addr, regions, None) {
                     constraints.push((offset, ConstraintType::Guid(guid.guid)));
                 }
                 
@@ -485,7 +484,7 @@ impl WarpContainer {
         }
         
         let mut matches = 0;
-        let mut total = sig_constraints.len();
+        let total = sig_constraints.len();
         
         for sig_c in sig_constraints {
             for (offset, binary_c) in binary_constraints {
@@ -522,27 +521,135 @@ impl WarpContainer {
         (matches * 100) / total.max(1)
     }
     
-    /// Add a function from radare2 analysis
+    /// Initialize the analysis cache (call before add_function_from_binary for batch operations)
+    pub unsafe fn initialize_cache(&mut self, core: *mut RCore) {
+        self.cache.initialize(core);
+    }
+    
+    /// Add a function from radare2 analysis using cached data
     pub unsafe fn add_function_from_binary(
+        &mut self,
+        core: *mut RCore,
+        addr: u64,
+    ) -> Result<FunctionGUID, String> {
+        // Initialize cache if needed
+        if self.cache.get_all_functions().is_empty() {
+            self.cache.initialize(core);
+        }
+        
+        // Use cached GUID computation
+        let guid_uuid = self.cache.get_or_compute_guid(core, addr)
+            .ok_or_else(|| format!("Failed to compute GUID for 0x{:x}", addr))?;
+        
+        // Get function name from cache
+        let name = self.cache.get_function(addr)
+            .and_then(|f| f.name.clone())
+            .unwrap_or_else(|| format!("fcn_{:08x}", addr));
+        
+        // Collect constraints using cache
+        let constraints = self.collect_constraints(core, addr);
+        
+        let mut func = Function::new(FunctionGUID::from_uuid(guid_uuid), Symbol::function(name));
+        func.constraints = constraints.into_iter().collect();
+        
+        let guid_bytes = func.guid.bytes;
+        self.functions
+            .entry(guid_bytes)
+            .or_insert_with(Vec::new)
+            .push(func);
+        self.function_count += 1;
+        
+        Ok(FunctionGUID::from_uuid(guid_uuid))
+    }
+    
+    /// Collect constraints for a function
+    unsafe fn collect_constraints(&self, core: *mut RCore, addr: u64) -> std::collections::HashSet<Constraint> {
+        use std::collections::HashSet as StdHashSet;
+        
+        let mut constraints = StdHashSet::new();
+        
+        // Get function start
+        let func_info = match self.cache.get_function(addr) {
+            Some(info) => info,
+            None => return constraints,
+        };
+        let func_start = func_info.addr;
+        
+        // Collect call-site constraints (calls FROM this function)
+        for xref in self.cache.get_xrefs_from_function(addr) {
+            let call_site = xref.from;
+            let call_target = xref.to;
+            
+            if call_target == 0 {
+                continue;
+            }
+            
+            let call_site_offset = call_site as i64 - func_start as i64;
+            
+            // Check if target is internal function
+            if self.cache.is_internal_function(call_target) {
+                // Internal function - use cached GUID
+                if let Some(target_guid) = self.cache.get_or_compute_guid(core, call_target) {
+                    let constraint = Constraint::from_function(
+                        &FunctionGUID::from_uuid(target_guid),
+                        Some(call_site_offset),
+                    );
+                    constraints.insert(constraint);
+                }
+            } else {
+                // External/import - use symbol name from xref
+                if let Some(ref name) = xref.name {
+                    let cleaned = crate::warp::constraint::clean_symbol_name(name);
+                    let symbol = Symbol::new(cleaned, crate::warp::signature::SymbolClass::Function);
+                    let constraint = Constraint::from_symbol(&symbol, Some(call_site_offset));
+                    constraints.insert(constraint);
+                }
+            }
+        }
+        
+        // Collect adjacency constraints (functions before/after)
+        for adj_addr in self.cache.get_adjacent_functions(addr) {
+            let offset = adj_addr as i64 - func_start as i64;
+            
+            // GUID constraint (cached)
+            if let Some(adj_guid) = self.cache.get_or_compute_guid(core, adj_addr) {
+                let constraint = Constraint::from_function(
+                    &FunctionGUID::from_uuid(adj_guid),
+                    Some(offset),
+                );
+                constraints.insert(constraint);
+            }
+            
+            // Symbol constraint
+            if let Some(adj_info) = self.cache.get_function(adj_addr) {
+                if let Some(ref name) = adj_info.name {
+                    let cleaned = crate::warp::constraint::clean_symbol_name(name);
+                    let symbol = Symbol::new(cleaned, crate::warp::signature::SymbolClass::Function);
+                    let constraint = Constraint::from_symbol(&symbol, Some(offset));
+                    constraints.insert(constraint);
+                }
+            }
+        }
+        
+        constraints
+    }
+    
+    /// Legacy method for compatibility - uses uncached path
+    pub unsafe fn add_function_from_binary_legacy(
         &mut self,
         core: *mut RCore,
         addr: u64,
         regions: &[RelocatableRegion],
     ) -> Result<FunctionGUID, String> {
-        let guid = crate::r2::guid::compute_function_guid(core, addr, regions)?;
+        let guid = crate::r2::guid::compute_function_guid(core, addr, regions, None)?;
         
         let func_info = crate::r2::analysis::get_function_at(core, addr);
         let name = func_info
             .and_then(|f| f.name)
             .unwrap_or_else(|| format!("fcn_{:08x}", addr));
         
-        // Collect constraints
-        let constraints = self.constraint_builder.call_site_constraints(core, addr, regions);
-        let mut all_constraints = constraints;
-        all_constraints.extend(self.constraint_builder.adjacency_constraints(core, addr, regions));
-        
         let mut func = Function::new(FunctionGUID::from_uuid(guid.guid), Symbol::function(name));
-        func.constraints = all_constraints.into_iter().collect();
+        func.constraints = Vec::new();
         
         let guid_bytes = func.guid.bytes;
         self.functions

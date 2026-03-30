@@ -1,7 +1,7 @@
 use uuid::{Uuid, uuid};
 
 use crate::r2::ffi::RCore;
-use crate::r2::analysis::{RelocatableRegion, BasicBlockInfo, get_function_blocks, disassemble_at};
+use crate::r2::analysis::{RelocatableRegion, FunctionDisassembly};
 
 pub const NAMESPACE_BASICBLOCK: Uuid = uuid!("0192a178-7a5f-7936-8653-3cbaa7d6afe7");
 pub const NAMESPACE_FUNCTION: Uuid = uuid!("0192a179-61ac-7cef-88ed-012296e9492f");
@@ -58,27 +58,37 @@ impl BasicBlockGUID {
 }
 
 /// Compute function GUID for the function at the given address
+/// 
+/// If disassembly is provided, it uses the cached data (efficient path).
+/// If not, it fetches the disassembly itself (slow path, for backwards compatibility).
 pub unsafe fn compute_function_guid(
     core: *mut RCore,
     fcn_addr: u64,
     regions: &[RelocatableRegion],
+    disasm: Option<&FunctionDisassembly>,
 ) -> Result<FunctionGUID, String> {
-    // Get all basic blocks in the function
-    let blocks = get_function_blocks(core, fcn_addr);
+    // Get disassembly - either from cache or fetch it
+    let disasm_data = match disasm {
+        Some(d) => d.clone(),
+        None => {
+            crate::r2::analysis::cache_function_disassembly(core, fcn_addr)
+                .ok_or_else(|| format!("No disassembly for function at 0x{:x}", fcn_addr))?
+        }
+    };
     
-    if blocks.is_empty() {
+    if disasm_data.blocks.is_empty() {
         return Err(format!("No basic blocks found at 0x{:x}", fcn_addr));
     }
     
     // Compute GUID for each block
     let mut block_guids: Vec<BasicBlockGUID> = Vec::new();
     
-    for block in &blocks {
-        match compute_block_guid(core, block, regions) {
+    for block in &disasm_data.blocks {
+        match compute_block_guid_from_instructions(block.addr, &block.instructions, regions) {
             Ok(bg) => block_guids.push(bg),
-            Err(e) => {
-                // Log warning but continue
-                eprintln!("Warning: Failed to compute block GUID at 0x{:x}: {}", block.addr, e);
+            Err(_) => {
+                // Skip blocks with no valid instructions (data/padding)
+                // Don't fail the entire function for empty blocks
             }
         }
     }
@@ -90,15 +100,12 @@ pub unsafe fn compute_function_guid(
     Ok(FunctionGUID::from_basic_blocks(&block_guids))
 }
 
-/// Compute basic block GUID
-unsafe fn compute_block_guid(
-    core: *mut RCore,
-    block: &BasicBlockInfo,
+/// Compute basic block GUID from pre-fetched instruction bytes
+fn compute_block_guid_from_instructions(
+    addr: u64,
+    instructions: &[Vec<u8>],
     regions: &[RelocatableRegion],
 ) -> Result<BasicBlockGUID, String> {
-    // Get disassembly for the block
-    let instructions = disassemble_at(core, block.addr, block.size);
-    
     if instructions.is_empty() {
         return Err("No instructions in block".to_string());
     }
@@ -106,19 +113,20 @@ unsafe fn compute_block_guid(
     // Build byte sequence with relocatable masking
     let mut bytes = Vec::new();
     
-    for insn_bytes in &instructions {
-        // Check if any instruction bytes need masking due to relocatable addresses
+    for insn_bytes in instructions {
         if is_relocatable_insn(insn_bytes, regions) {
-            // Mask the relocatable portion (typically the immediate/address part)
             let masked = mask_relocatable_bytes(insn_bytes, regions);
             bytes.extend(masked);
         } else if !is_nop_insn(insn_bytes) && !is_self_move_insn(insn_bytes) {
-            // Include non-NOP, non-self-move instructions
             bytes.extend(insn_bytes.iter());
         }
     }
     
-    Ok(BasicBlockGUID::from_bytes(block.addr, &bytes))
+    if bytes.is_empty() {
+        return Err("Block produced no bytes after filtering".to_string());
+    }
+    
+    Ok(BasicBlockGUID::from_bytes(addr, &bytes))
 }
 
 /// Check if instruction appears to be a NOP
@@ -181,7 +189,7 @@ fn is_self_move_insn(bytes: &[u8]) -> bool {
 }
 
 /// Check if instruction contains a relocatable address
-fn is_relocatable_insn(bytes: &[u8], regions: &[RelocatableRegion]) -> bool {
+fn is_relocatable_insn(bytes: &[u8], _regions: &[RelocatableRegion]) -> bool {
     // This is a heuristic - we need to check if any embedded address falls within
     // mapped sections that could be relocated
     // For now, assume call/jmp instructions to addresses in relocatable regions
@@ -205,7 +213,7 @@ fn is_relocatable_insn(bytes: &[u8], regions: &[RelocatableRegion]) -> bool {
 }
 
 /// Mask relocatable bytes in an instruction
-fn mask_relocatable_bytes(bytes: &[u8], regions: &[RelocatableRegion]) -> Vec<u8> {
+fn mask_relocatable_bytes(bytes: &[u8], _regions: &[RelocatableRegion]) -> Vec<u8> {
     // Zero out relocatable portion (typically the immediate/offset)
     let mut result = bytes.to_vec();
     

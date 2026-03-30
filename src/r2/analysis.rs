@@ -18,6 +18,18 @@ pub struct BasicBlockInfo {
     pub size: u64,
 }
 
+/// Cached disassembly for a function's blocks (instruction bytes)
+#[derive(Debug, Clone)]
+pub struct FunctionDisassembly {
+    pub blocks: Vec<BlockDisassembly>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BlockDisassembly {
+    pub addr: u64,
+    pub instructions: Vec<Vec<u8>>,
+}
+
 pub unsafe fn run_minimal_analysis(core: *mut RCore) {
     let cmd = CString::new("aa").unwrap();
     r_core_cmd(core, cmd.as_ptr());
@@ -152,16 +164,14 @@ pub unsafe fn get_function_blocks(core: *mut RCore, addr: u64) -> Vec<BasicBlock
     blocks
 }
 
-/// Disassemble instructions at address and return raw bytes
-pub unsafe fn disassemble_at(core: *mut RCore, addr: u64, _size: u64) -> Vec<Vec<u8>> {
-    let mut instructions = Vec::new();
-    
-    // Use pDrj to get disassembly with bytes (capital D includes bytes field)
-    let cmd = CString::new(format!("pDrj @ 0x{:x}", addr)).unwrap();
+/// Cache function disassembly - fetches ALL blocks with instruction bytes in ONE call
+/// This is much more efficient than calling disassemble_at() per block
+pub unsafe fn cache_function_disassembly(core: *mut RCore, fcn_addr: u64) -> Option<FunctionDisassembly> {
+    let cmd = CString::new(format!("pdrj @ 0x{:x}", fcn_addr)).unwrap();
     let result = r_core_cmd_str(core, cmd.as_ptr());
     
     if result.is_null() {
-        return instructions;
+        return None;
     }
     
     let json_str = std::ffi::CStr::from_ptr(result)
@@ -170,40 +180,41 @@ pub unsafe fn disassemble_at(core: *mut RCore, addr: u64, _size: u64) -> Vec<Vec
     
     free(result as *mut _);
     
-    // The output is a JSON object with "ops" array or "bbs" array
-    // Try to parse as object with ops
-    if let Ok(obj) = serde_json::from_str::<serde_json::Value>(&json_str) {
-        // Try "ops" array first (flat format)
-        if let Some(ops) = obj.get("ops").and_then(|v| v.as_array()) {
-            for op in ops {
-                if let Some(bytes_hex) = op.get("bytes").and_then(|v| v.as_str()) {
-                    if !bytes_hex.is_empty() {
-                        if let Ok(bytes) = hex::decode(bytes_hex) {
-                            instructions.push(bytes);
-                        }
+    let obj = serde_json::from_str::<serde_json::Value>(&json_str).ok()?;
+    let bbs = obj.get("bbs")?.as_array()?;
+    
+    let mut blocks = Vec::new();
+    let empty_ops: Vec<serde_json::Value> = Vec::new();
+    
+    for bb in bbs {
+        let bb_addr = bb.get("addr")?.as_u64()?;
+        let ops = bb.get("ops").and_then(|v| v.as_array()).unwrap_or(&empty_ops);
+        
+        let mut instructions = Vec::new();
+        for op in ops {
+            if let Some(bytes_hex) = op.get("bytes").and_then(|v| v.as_str()) {
+                if !bytes_hex.is_empty() {
+                    if let Ok(bytes) = hex::decode(bytes_hex) {
+                        instructions.push(bytes);
                     }
                 }
             }
         }
-        // Try "bbs" array (block format)
-        else if let Some(bbs) = obj.get("bbs").and_then(|v| v.as_array()) {
-            for bb in bbs {
-                if let Some(ops) = bb.get("ops").and_then(|v| v.as_array()) {
-                    for op in ops {
-                        if let Some(bytes_hex) = op.get("bytes").and_then(|v| v.as_str()) {
-                            if !bytes_hex.is_empty() {
-                                if let Ok(bytes) = hex::decode(bytes_hex) {
-                                    instructions.push(bytes);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        
+        // Only include blocks that have instructions
+        if !instructions.is_empty() {
+            blocks.push(BlockDisassembly {
+                addr: bb_addr,
+                instructions,
+            });
         }
     }
     
-    instructions
+    if blocks.is_empty() {
+        None
+    } else {
+        Some(FunctionDisassembly { blocks })
+    }
 }
 
 /// Get relocatable regions from sections/segments

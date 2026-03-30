@@ -215,7 +215,7 @@ unsafe fn cmd_match_all(core: *mut RCore, container: &WarpContainer) -> bool {
                 }
             }
             None => {
-                match compute_function_guid(core, *fcn_addr, &regions) {
+                match compute_function_guid(core, *fcn_addr, &regions, None) {
                     Ok(guid) => {
                         if let Some(matches) = container.find_by_guid(&guid) {
                             if !matches.is_empty() {
@@ -289,7 +289,7 @@ unsafe fn cmd_match_single(
     }
     
     // Fallback to GUID-only matching
-    let guid = match compute_function_guid(core, addr, &regions) {
+    let guid = match compute_function_guid(core, addr, &regions, None) {
         Ok(g) => g,
         Err(e) => {
             show_error(core, &format!("Failed to compute function GUID: {}", e));
@@ -358,20 +358,31 @@ unsafe fn cmd_create_all(core: *mut RCore, container: &mut WarpContainer) -> boo
         return false;
     }
     
-    let functions = analysis::get_all_functions(core);
-    if functions.is_empty() {
+    let interactive = analysis::is_interactive(core);
+    
+    // Initialize cache once for all functions
+    if interactive {
+        print_str(core, "Initializing analysis cache...");
+        crate::r2::ffi::r_cons_flush(
+            crate::r2::ffi::r_core_get_cons(core)
+        );
+    }
+    
+    container.initialize_cache(core);
+    
+    let functions = container.cache.get_all_functions().to_vec();
+    let total = functions.len();
+    
+    if total == 0 {
         show_error(core, "No functions found in current binary.");
         return false;
     }
     
-    let interactive = analysis::is_interactive(core);
-    let total = functions.len();
-    
     if interactive {
+        print_str(core, &format!("\rCreating WARP signatures for {} functions...\n", total));
+    } else {
         print_str(core, &format!("Creating WARP signatures for {} functions...\n", total));
     }
-    
-    let regions = analysis::get_relocatable_regions(core);
     
     for (i, fcn_addr) in functions.iter().enumerate() {
         if interactive {
@@ -381,7 +392,7 @@ unsafe fn cmd_create_all(core: *mut RCore, container: &mut WarpContainer) -> boo
             );
         }
         
-        if let Err(e) = container.add_function_from_binary(core, *fcn_addr, &regions) {
+        if let Err(e) = container.add_function_from_binary(core, *fcn_addr) {
             if interactive {
                 print_str(core, &format!(
                     "\nWarning: Failed to add function at 0x{:x}: {}\n",
@@ -405,9 +416,10 @@ unsafe fn cmd_create_single(
     container: &mut WarpContainer,
     addr: u64,
 ) -> bool {
-    let regions = analysis::get_relocatable_regions(core);
+    // Initialize cache for single function
+    container.initialize_cache(core);
     
-    match container.add_function_from_binary(core, addr, &regions) {
+    match container.add_function_from_binary(core, addr) {
         Ok(guid) => {
             print_str(core, &format!("Created signature: {}\n", guid));
             true
