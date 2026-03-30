@@ -1,0 +1,21 @@
+namespace SymbolBin;
+
+enum SymbolClass : ubyte {
+    Function,
+    Data,
+    Bare
+}
+
+enum SymbolModifiers : ubyte (bit_flags) {
+    // Function is an import, or otherwise external to the analysis.
+    External = 0,
+    // Function is exported
+    // TODO: This naming is unfortunate. If something is referenced externally
+    Exported
+}
+
+table Symbol {
+    name:string;
+    modifiers:SymbolModifiers;
+    class:SymbolClass;
+}
