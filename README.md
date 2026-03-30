@@ -116,12 +116,16 @@ r2 -e core_warp=true /path/to/binary
 | Feature | Status |
 |---------|--------|
 | Plugin registration | ✅ Complete |
-| Command handler | ✅ Complete |
-| GUID generation | ✅ Complete |
-| WARP file loading | 🟡 Basic (JSON fallback) |
-| WARP file saving | ❌ TODO |
-| FlatBuffers I/O | ❌ TODO |
+| Command handler (`zw` namespace) | ✅ Complete |
+| GUID generation (UUIDv5) | ✅ Complete |
+| WARP file loading | ✅ Complete (FlatBuffers) |
+| WARP file saving | ✅ Complete |
+| FlatBuffers I/O | ✅ Complete |
+| Function matching | ✅ Complete |
+| Metadata application | ✅ Complete (names, comments) |
+| Progress display | ✅ Complete (interactive mode) |
 | Constraint matching | ❌ TODO (Phase 5) |
+| GUID snapshot testing | ❌ TODO |
 
 ## License
 
