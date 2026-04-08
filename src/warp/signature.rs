@@ -1,7 +1,11 @@
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
+use uuid::{Uuid, uuid};
+
 use crate::r2::guid::FunctionGUID as R2FunctionGUID;
+
+pub const NAMESPACE_CONSTRAINT: Uuid = uuid!("019701f3-e89c-7afa-9181-371a5e98a576");
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FunctionGUID {
@@ -85,22 +89,36 @@ pub struct Constraint {
     pub guid: Option<FunctionGUID>,
     pub symbol: Option<Symbol>,
     pub offset: i64,
+    pub constraint_guid: Option<Uuid>,
 }
 
 impl Constraint {
     pub fn from_function(guid: &FunctionGUID, offset: Option<i64>) -> Self {
+        let constraint_guid = Uuid::new_v5(&NAMESPACE_CONSTRAINT, guid.bytes.as_ref());
         Self {
             guid: Some(guid.clone()),
             symbol: None,
             offset: offset.unwrap_or(0),
+            constraint_guid: Some(constraint_guid),
         }
     }
 
     pub fn from_symbol(symbol: &Symbol, offset: Option<i64>) -> Self {
+        let constraint_guid = Uuid::new_v5(&NAMESPACE_CONSTRAINT, symbol.name.as_bytes());
         Self {
             guid: None,
             symbol: Some(symbol.clone()),
             offset: offset.unwrap_or(0),
+            constraint_guid: Some(constraint_guid),
+        }
+    }
+
+    pub fn from_constraint_guid(constraint_guid: Uuid, offset: i64) -> Self {
+        Self {
+            guid: None,
+            symbol: None,
+            offset,
+            constraint_guid: Some(constraint_guid),
         }
     }
 }

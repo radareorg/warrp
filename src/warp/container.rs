@@ -14,7 +14,7 @@ use crate::warp::types::Target;
 
 enum ConstraintType {
     Guid(Uuid),
-    Symbol(String),
+    Symbol(Uuid),
 }
 
 #[derive(Debug)]
@@ -108,17 +108,13 @@ impl WarpContainer {
         let mut functions = Vec::new();
         let mut target = Target::default();
         
-        // Extract target from chunks
         for chunk in &warp_file.chunks {
-            // Target is always present in the header
             target = Target::new(
                 chunk.header.target.architecture.clone().unwrap_or_default(),
                 chunk.header.target.platform.clone().unwrap_or_default(),
             );
             
-            // Extract functions from signature chunks
             if let ChunkKind::Signature(sig_chunk) = &chunk.kind {
-                // Use the functions() iterator to get owned Function objects
                 for func in sig_chunk.functions() {
                     let guid_bytes = func.guid.as_bytes();
                     let mut bytes = [0u8; 16];
@@ -126,10 +122,19 @@ impl WarpContainer {
                     
                     let name = func.symbol.name.clone();
                     
-                    let function = Function::new(
+                    let mut function = Function::new(
                         FunctionGUID { bytes },
                         Symbol::function(name),
                     );
+                    
+                    let mut constraints = std::collections::HashSet::new();
+                    for constraint in func.constraints.iter() {
+                        let constraint_guid = Uuid::from_bytes(constraint.guid.guid.into_bytes());
+                        let offset = constraint.offset.unwrap_or(0);
+                        let c = Constraint::from_constraint_guid(constraint_guid, offset);
+                        constraints.insert(c);
+                    }
+                    function.constraints = constraints.into_iter().collect();
                     
                     functions.push(function);
                 }
@@ -364,16 +369,15 @@ impl WarpContainer {
         regions: &[RelocatableRegion],
     ) -> Vec<(i64, ConstraintType)> {
         use crate::warp::constraint::clean_symbol_name;
+        use crate::warp::signature::NAMESPACE_CONSTRAINT;
         
         let mut constraints = Vec::new();
         
-        // Get function start
         let func_start = match crate::r2::analysis::get_function_at(core, addr) {
             Some(f) => f.addr,
             None => return constraints,
         };
         
-        // Collect call site constraints
         let cmd = std::ffi::CString::new(format!("axfj @ 0x{:x}", addr)).unwrap();
         let result = crate::r2::ffi::r_core_cmd_str(core, cmd.as_ptr());
         
@@ -402,12 +406,11 @@ impl WarpContainer {
                     
                     let offset = call_site as i64 - func_start as i64;
                     
-                    // Try to get GUID for target
                     if let Ok(target_guid) = crate::r2::guid::compute_function_guid(core, call_target, regions, None) {
-                        constraints.push((offset, ConstraintType::Guid(target_guid.guid)));
+                        let constraint_guid = Uuid::new_v5(&NAMESPACE_CONSTRAINT, target_guid.as_bytes());
+                        constraints.push((offset, ConstraintType::Guid(constraint_guid)));
                     }
                     
-                    // Also try symbol name
                     let sym_cmd = std::ffi::CString::new(format!("is.j @ 0x{:x}", call_target)).unwrap();
                     let sym_result = crate::r2::ffi::r_core_cmd_str(core, sym_cmd.as_ptr());
                     if !sym_result.is_null() {
@@ -419,7 +422,8 @@ impl WarpContainer {
                         if let Ok(symbols) = serde_json::from_str::<Vec<serde_json::Value>>(&sym_str) {
                             if let Some(name) = symbols.first().and_then(|s| s.get("name")).and_then(|n| n.as_str()) {
                                 let cleaned = clean_symbol_name(name);
-                                constraints.push((offset, ConstraintType::Symbol(cleaned)));
+                                let constraint_guid = Uuid::new_v5(&NAMESPACE_CONSTRAINT, cleaned.as_bytes());
+                                constraints.push((offset, ConstraintType::Symbol(constraint_guid)));
                             }
                         }
                     }
@@ -427,44 +431,45 @@ impl WarpContainer {
             }
         }
         
-        // Collect adjacency constraints
         let all_funcs = crate::r2::analysis::get_all_functions(core);
         let mut sorted_funcs: Vec<u64> = all_funcs.into_iter().collect();
         sorted_funcs.sort();
         
         if let Ok(pos) = sorted_funcs.binary_search(&addr) {
-            // Up to 2 before
             let start = pos.saturating_sub(2);
             for i in start..pos {
                 let adj_addr = sorted_funcs[i];
                 let offset = adj_addr as i64 - func_start as i64;
                 
                 if let Ok(guid) = crate::r2::guid::compute_function_guid(core, adj_addr, regions, None) {
-                    constraints.push((offset, ConstraintType::Guid(guid.guid)));
+                    let constraint_guid = Uuid::new_v5(&NAMESPACE_CONSTRAINT, guid.as_bytes());
+                    constraints.push((offset, ConstraintType::Guid(constraint_guid)));
                 }
                 
                 if let Some(adj_info) = crate::r2::analysis::get_function_at(core, adj_addr) {
                     if let Some(name) = adj_info.name {
                         let cleaned = clean_symbol_name(&name);
-                        constraints.push((offset, ConstraintType::Symbol(cleaned)));
+                        let constraint_guid = Uuid::new_v5(&NAMESPACE_CONSTRAINT, cleaned.as_bytes());
+                        constraints.push((offset, ConstraintType::Symbol(constraint_guid)));
                     }
                 }
             }
             
-            // Up to 2 after
             let end = (pos + 3).min(sorted_funcs.len());
             for i in (pos + 1)..end {
                 let adj_addr = sorted_funcs[i];
                 let offset = adj_addr as i64 - func_start as i64;
                 
                 if let Ok(guid) = crate::r2::guid::compute_function_guid(core, adj_addr, regions, None) {
-                    constraints.push((offset, ConstraintType::Guid(guid.guid)));
+                    let constraint_guid = Uuid::new_v5(&NAMESPACE_CONSTRAINT, guid.as_bytes());
+                    constraints.push((offset, ConstraintType::Guid(constraint_guid)));
                 }
                 
                 if let Some(adj_info) = crate::r2::analysis::get_function_at(core, adj_addr) {
                     if let Some(name) = adj_info.name {
                         let cleaned = clean_symbol_name(&name);
-                        constraints.push((offset, ConstraintType::Symbol(cleaned)));
+                        let constraint_guid = Uuid::new_v5(&NAMESPACE_CONSTRAINT, cleaned.as_bytes());
+                        constraints.push((offset, ConstraintType::Symbol(constraint_guid)));
                     }
                 }
             }
@@ -480,44 +485,36 @@ impl WarpContainer {
         sig_constraints: &[Constraint],
     ) -> usize {
         if sig_constraints.is_empty() {
-            return 50; // No constraints to match against
+            return 50;
         }
         
         let mut matches = 0;
         let total = sig_constraints.len();
         
         for sig_c in sig_constraints {
+            let sig_cguid = match &sig_c.constraint_guid {
+                Some(g) => g,
+                None => continue,
+            };
+            
             for (offset, binary_c) in binary_constraints {
-                // Check offset match (allow small tolerance)
                 let offset_diff = (sig_c.offset - offset).abs();
                 if offset_diff > 16 {
                     continue;
                 }
                 
-                // Check GUID match
-                if let Some(sig_guid) = &sig_c.guid {
-                    if let ConstraintType::Guid(binary_guid) = binary_c {
-                        let sig_uuid = sig_guid.to_uuid();
-                        if sig_uuid == *binary_guid {
-                            matches += 1;
-                            break;
-                        }
-                    }
-                }
+                let binary_cguid = match binary_c {
+                    ConstraintType::Guid(g) => g,
+                    ConstraintType::Symbol(g) => g,
+                };
                 
-                // Check symbol match
-                if let Some(sig_sym) = &sig_c.symbol {
-                    if let ConstraintType::Symbol(binary_sym) = binary_c {
-                        if sig_sym.name == *binary_sym {
-                            matches += 1;
-                            break;
-                        }
-                    }
+                if sig_cguid == binary_cguid {
+                    matches += 1;
+                    break;
                 }
             }
         }
         
-        // Return percentage match
         (matches * 100) / total.max(1)
     }
     
