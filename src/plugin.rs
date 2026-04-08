@@ -1,13 +1,14 @@
 use std::ffi::{c_void, c_char, c_int, CStr};
 
 use crate::cmd::handle_zw_command;
-use crate::r2::ffi::{RCorePluginSession, R_LIB_TYPE_CORE, R_PLUGIN_STATUS_OK};
+use crate::r2::ffi::{RCorePluginSession, R_LIB_TYPE_CORE, R_PLUGIN_STATUS_OK, r_core_cmd_str, free};
 use crate::warp::container::WarpContainer;
 
 const R2_VERSION: &str = "6.1.3\0";
 const R2_ABIVERSION: u32 = 82;
 
 static mut G_CONTAINER: Option<WarpContainer> = None;
+static mut IN_ZHELP: bool = false;
 
 #[repr(C)]
 pub struct RCorePluginStatic {
@@ -88,13 +89,29 @@ unsafe extern "C" fn warp_call(session: *mut RCorePluginSession, input: *const c
         Err(_) => return false,
     };
     
+    let core = (*session).core;
+    
+    if input_str == "z?" || input_str == "z??" {
+        if IN_ZHELP {
+            return false;
+        }
+        IN_ZHELP = true;
+        let help_cmd = std::ffi::CString::new("z?").unwrap();
+        let native_help = r_core_cmd_str(core, help_cmd.as_ptr());
+        if !native_help.is_null() {
+            let s = std::ffi::CStr::from_ptr(native_help).to_string_lossy();
+            crate::cmd::print_str(core, &s);
+            free(native_help as *mut _);
+        }
+        IN_ZHELP = false;
+        crate::cmd::print_str(core, "| zw[?]        manage WARP signatures\n");
+        return true;
+    }
+    
     if !input_str.starts_with("zw") {
         return false;
     }
     
-    let core = (*session).core;
-    
-    // Use panic::catch_unwind to prevent unwinding across FFI boundary
     std::panic::catch_unwind(|| {
         if let Some(ref mut container) = G_CONTAINER {
             handle_zw_command(core, container, input_str)
