@@ -1,9 +1,8 @@
 [package]
-name = "core_warp"
+name = "warrp"
 version = "0.1.0"
 edition = "2021"
-authors = ["WARP Contributors"]
-license = "LGPL-3.0"
+authors = ["Abhi <abhi@revengi.in>"]
 description = "WARP signature format support for radare2"
 
 [lib]
@@ -11,8 +10,8 @@ name = "core_warp"
 crate-type = ["cdylib"]
 
 [dependencies]
-uuid = { version = "1.10", features = ["v5"] }
-flatbuffers = "24.3"
+uuid = { version = "1.17.0", features = ["v5"] }
+flatbuffers = "25.2.10"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sha1 = "0.10"

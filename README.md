@@ -1,4 +1,4 @@
-# WARP radare2 Plugin
+# WARRP
 
 A native radare2 plugin for the [WARP](https://github.com/Vector35/warp) signature format.
 
@@ -104,13 +104,7 @@ WARP uses UUIDv5-based function identification:
 ## Testing
 
 ```bash
-# Run unit tests
-cargo test
-
-# Test with a binary
-r2 -e core_warp=true /path/to/binary
-[0x00000000]> zw load /path/to/msvcrt.warp
-[0x00000000]> zw match -a
+cargo test --lib
 ```
 
 ## Development Status
@@ -131,12 +125,8 @@ r2 -e core_warp=true /path/to/binary
 | Performance optimization         | ✅ Complete (caching, batch fetch)   |
 | GUID snapshot testing            | ❌ TODO                              |
 
-## License
-
-LGPL-3.0
-
 ## References
 
-- [WARP Specification](https://github.com/vector35/warp)
+- [WARP](https://github.com/vector35/warp)
 - [radare2](https://github.com/radareorg/radare2)
 - [Binary Ninja WARP Plugin](https://github.com/Vector35/binaryninja-api/tree/dev/plugins/warp)
