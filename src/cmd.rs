@@ -1,8 +1,8 @@
 use std::ffi::CString;
 use std::path::Path;
 
-use crate::r2::ffi::{RCore, r_cons_print, r_core_cmd_str, free};
 use crate::r2::analysis;
+use crate::r2::ffi::{free, r_cons_print, r_core_cmd_str, RCore};
 use crate::r2::guid::compute_function_guid;
 use crate::warp::container::WarpContainer;
 
@@ -73,22 +73,20 @@ unsafe fn cmd_list(core: *mut RCore, container: &WarpContainer) -> bool {
     }
 
     if let Some(ref target) = container.get_target() {
-        print_str(core, &format!(
-            "Target: {} / {}\n",
-            target.architecture,
-            target.platform
-        ));
+        print_str(
+            core,
+            &format!("Target: {} / {}\n", target.architecture, target.platform),
+        );
     }
 
-    print_str(core, &format!("Functions loaded: {}\n", container.function_count()));
+    print_str(
+        core,
+        &format!("Functions loaded: {}\n", container.function_count()),
+    );
     true
 }
 
-unsafe fn cmd_load(
-    core: *mut RCore,
-    container: &mut WarpContainer,
-    args: &[&str],
-) -> bool {
+unsafe fn cmd_load(core: *mut RCore, container: &mut WarpContainer, args: &[&str]) -> bool {
     let path = match args.get(0) {
         Some(p) => *p,
         None => {
@@ -102,7 +100,10 @@ unsafe fn cmd_load(
     match container.load(Path::new(path)) {
         Ok(()) => {
             print_str(core, "Successfully loaded WARP file\n");
-            print_str(core, &format!("Functions loaded: {}\n", container.function_count()));
+            print_str(
+                core,
+                &format!("Functions loaded: {}\n", container.function_count()),
+            );
             true
         }
         Err(e) => {
@@ -112,11 +113,7 @@ unsafe fn cmd_load(
     }
 }
 
-unsafe fn cmd_save(
-    core: *mut RCore,
-    container: &mut WarpContainer,
-    args: &[&str],
-) -> bool {
+unsafe fn cmd_save(core: *mut RCore, container: &mut WarpContainer, args: &[&str]) -> bool {
     let path = match args.get(0) {
         Some(p) => *p,
         None => {
@@ -140,23 +137,31 @@ unsafe fn cmd_save(
 }
 
 unsafe fn resolve_address(args: &[&str], core: *mut RCore) -> Option<u64> {
-    let addr_str = args.iter().find(|a| !a.starts_with('-')).copied().unwrap_or("$$");
+    let addr_str = args
+        .iter()
+        .find(|a| !a.starts_with('-'))
+        .copied()
+        .unwrap_or("$$");
     let addr = parse_address(core, addr_str);
-    if addr == 0 { show_error(core, "Invalid address"); None } else { Some(addr) }
+    if addr == 0 {
+        show_error(core, "Invalid address");
+        None
+    } else {
+        Some(addr)
+    }
 }
 
-unsafe fn cmd_match(
-    core: *mut RCore,
-    container: &mut WarpContainer,
-    args: &[&str],
-) -> bool {
+unsafe fn cmd_match(core: *mut RCore, container: &mut WarpContainer, args: &[&str]) -> bool {
     if container.function_count() == 0 {
         show_error(core, "No WARP signatures loaded. Use 'zw load' first.");
         return true;
     }
 
     if !analysis::ensure_functions_exist(core) {
-        show_error(core, "No functions found after analysis. Binary may be unsupported.");
+        show_error(
+            core,
+            "No functions found after analysis. Binary may be unsupported.",
+        );
         return true;
     }
 
@@ -194,13 +199,13 @@ unsafe fn cmd_match_all(core: *mut RCore, container: &WarpContainer) -> bool {
                     } else {
                         String::new()
                     };
-                    print_str(core, &format!(
-                        "0x{:08x}: {} -> {}{}\n",
-                        fcn_addr,
-                        best.guid,
-                        best.symbol.name,
-                        extra
-                    ));
+                    print_str(
+                        core,
+                        &format!(
+                            "0x{:08x}: {} -> {}{}\n",
+                            fcn_addr, best.guid, best.symbol.name, extra
+                        ),
+                    );
                     matched += 1;
                     if candidates.len() > 1 {
                         ambiguous += 1;
@@ -209,50 +214,42 @@ unsafe fn cmd_match_all(core: *mut RCore, container: &WarpContainer) -> bool {
                     unmatched += 1;
                 }
             }
-            None => {
-                match compute_function_guid(core, *fcn_addr, &regions, None) {
-                    Ok(guid) => {
-                        if let Some(matches) = container.find_by_guid(&guid) {
-                            if !matches.is_empty() {
-                                let name = &matches[0].symbol.name;
-                                analysis::apply_function_metadata(core, *fcn_addr, &matches[0]);
-                                print_str(core, &format!(
-                                    "0x{:08x}: {} -> {}\n",
-                                    fcn_addr,
-                                    guid,
-                                    name
-                                ));
-                                matched += 1;
-                            } else {
-                                unmatched += 1;
-                            }
+            None => match compute_function_guid(core, *fcn_addr, &regions, None) {
+                Ok(guid) => {
+                    if let Some(matches) = container.find_by_guid(&guid) {
+                        if !matches.is_empty() {
+                            let name = &matches[0].symbol.name;
+                            analysis::apply_function_metadata(core, *fcn_addr, &matches[0]);
+                            print_str(core, &format!("0x{:08x}: {} -> {}\n", fcn_addr, guid, name));
+                            matched += 1;
                         } else {
                             unmatched += 1;
                         }
-                    }
-                    Err(_) => {
+                    } else {
                         unmatched += 1;
                     }
                 }
-            }
+                Err(_) => {
+                    unmatched += 1;
+                }
+            },
         }
     }
 
-    print_str(core, &format!(
-        "Matched: {} / {} (ambiguous: {})\n",
-        matched,
-        matched + unmatched,
-        ambiguous
-    ));
+    print_str(
+        core,
+        &format!(
+            "Matched: {} / {} (ambiguous: {})\n",
+            matched,
+            matched + unmatched,
+            ambiguous
+        ),
+    );
 
     true
 }
 
-unsafe fn cmd_match_single(
-    core: *mut RCore,
-    container: &WarpContainer,
-    addr: u64,
-) -> bool {
+unsafe fn cmd_match_single(core: *mut RCore, container: &WarpContainer, addr: u64) -> bool {
     print_str(core, &format!("Matching function at 0x{:08x}...\n", addr));
 
     let regions = analysis::get_relocatable_regions(core);
@@ -260,17 +257,23 @@ unsafe fn cmd_match_single(
     // Try constraint-based matching first
     match container.match_with_constraints(core, addr, &regions) {
         Some(candidates) => {
-            print_str(core, &format!("Found {} candidate(s) by GUID:\n", candidates.len()));
+            print_str(
+                core,
+                &format!("Found {} candidate(s) by GUID:\n", candidates.len()),
+            );
 
             for (i, (func, _score)) in candidates.iter().enumerate() {
                 let marker = if i == 0 { "*" } else { " " };
-                print_str(core, &format!(
-                    "  {}{}. {} ({} constraints)\n",
-                    marker,
-                    i + 1,
-                    func.symbol.name,
-                    func.constraints.len()
-                ));
+                print_str(
+                    core,
+                    &format!(
+                        "  {}{}. {} ({} constraints)\n",
+                        marker,
+                        i + 1,
+                        func.symbol.name,
+                        func.constraints.len()
+                    ),
+                );
             }
 
             // Apply best match
@@ -292,18 +295,24 @@ unsafe fn cmd_match_single(
         }
     };
 
-    print_str(core, &format!("Function GUID: {} (no constraint matches)\n", guid));
+    print_str(
+        core,
+        &format!("Function GUID: {} (no constraint matches)\n", guid),
+    );
 
     match container.find_by_guid(&guid) {
         Some(matches) if !matches.is_empty() => {
             print_str(core, &format!("Found {} match(es):\n", matches.len()));
             for (i, func) in matches.iter().enumerate() {
-                print_str(core, &format!(
-                    "  {}. {} (constraints: {})\n",
-                    i + 1,
-                    func.symbol.name,
-                    func.constraints.len()
-                ));
+                print_str(
+                    core,
+                    &format!(
+                        "  {}. {} (constraints: {})\n",
+                        i + 1,
+                        func.symbol.name,
+                        func.constraints.len()
+                    ),
+                );
             }
 
             if matches.len() == 1 {
@@ -311,7 +320,10 @@ unsafe fn cmd_match_single(
                 analysis::apply_function_metadata(core, addr, &matches[0]);
                 print_str(core, &format!("Applied: {}\n", name));
             } else {
-                print_str(core, "Multiple matches found. Use constraints to disambiguate.\n");
+                print_str(
+                    core,
+                    "Multiple matches found. Use constraints to disambiguate.\n",
+                );
             }
             true
         }
@@ -322,11 +334,7 @@ unsafe fn cmd_match_single(
     }
 }
 
-unsafe fn cmd_create(
-    core: *mut RCore,
-    container: &mut WarpContainer,
-    args: &[&str],
-) -> bool {
+unsafe fn cmd_create(core: *mut RCore, container: &mut WarpContainer, args: &[&str]) -> bool {
     if args.contains(&"-a") {
         return cmd_create_all(core, container);
     }
@@ -338,37 +346,63 @@ unsafe fn cmd_create(
 
 unsafe fn cmd_create_all(core: *mut RCore, container: &mut WarpContainer) -> bool {
     if !analysis::ensure_functions_exist(core) {
-        show_error(core, "No functions found after analysis. Binary may be unsupported.");
+        show_error(
+            core,
+            "No functions found after analysis. Binary may be unsupported.",
+        );
         return true;
     }
 
     let interactive = analysis::is_interactive(core);
     let cons = crate::r2::ffi::r_core_get_cons(core);
-    if interactive { print_str(core, "Initializing analysis cache..."); crate::r2::ffi::r_cons_flush(cons); }
+    if interactive {
+        print_str(core, "Initializing analysis cache...");
+        crate::r2::ffi::r_cons_flush(cons);
+    }
 
     container.initialize_cache(core);
     let functions = container.cache.get_all_functions().to_vec();
     let total = functions.len();
-    if total == 0 { show_error(core, "No functions found in current binary."); return true; }
+    if total == 0 {
+        show_error(core, "No functions found in current binary.");
+        return true;
+    }
 
-    print_str(core, &format!("Creating WARP signatures for {} functions...\n", total));
+    print_str(
+        core,
+        &format!("Creating WARP signatures for {} functions...\n", total),
+    );
 
     for (i, fcn_addr) in functions.iter().enumerate() {
-        if interactive { print_str(core, &format!("\rProcessing {}/{}...", i + 1, total)); crate::r2::ffi::r_cons_flush(cons); }
+        if interactive {
+            print_str(core, &format!("\rProcessing {}/{}...", i + 1, total));
+            crate::r2::ffi::r_cons_flush(cons);
+        }
         if let Err(e) = container.add_function_from_binary(core, *fcn_addr) {
-            if interactive { print_str(core, &format!("\nWarning: Failed to add function at 0x{:x}: {}\n", fcn_addr, e)); }
+            if interactive {
+                print_str(
+                    core,
+                    &format!(
+                        "\nWarning: Failed to add function at 0x{:x}: {}\n",
+                        fcn_addr, e
+                    ),
+                );
+            }
         }
     }
 
-    if interactive { print_str(core, "\n"); } else { print_str(core, &format!("Created signatures for {} functions\n", total)); }
+    if interactive {
+        print_str(core, "\n");
+    } else {
+        print_str(
+            core,
+            &format!("Created signatures for {} functions\n", total),
+        );
+    }
     true
 }
 
-unsafe fn cmd_create_single(
-    core: *mut RCore,
-    container: &mut WarpContainer,
-    addr: u64,
-) -> bool {
+unsafe fn cmd_create_single(core: *mut RCore, container: &mut WarpContainer, addr: u64) -> bool {
     container.initialize_cache(core);
 
     match container.add_function_from_binary(core, addr) {
@@ -386,7 +420,10 @@ unsafe fn cmd_create_single(
 unsafe fn cmd_info(core: *mut RCore, container: &WarpContainer) -> bool {
     print_str(core, "WARP Container Information:\n");
     print_str(core, &format!("Files loaded: {}\n", container.file_count()));
-    print_str(core, &format!("Functions: {}\n", container.function_count()));
+    print_str(
+        core,
+        &format!("Functions: {}\n", container.function_count()),
+    );
 
     if let Some(ref target) = container.get_target() {
         print_str(core, &format!("Architecture: {}\n", target.architecture));
@@ -402,11 +439,7 @@ unsafe fn cmd_clear(core: *mut RCore, container: &mut WarpContainer) -> bool {
     true
 }
 
-unsafe fn cmd_test(
-    core: *mut RCore,
-    container: &mut WarpContainer,
-    args: &[&str],
-) -> bool {
+unsafe fn cmd_test(core: *mut RCore, container: &mut WarpContainer, args: &[&str]) -> bool {
     let binary_path = match args.get(0) {
         Some(p) => *p,
         None => {
@@ -423,7 +456,13 @@ unsafe fn cmd_test(
         }
     };
 
-    print_str(core, &format!("Testing GUID generation: {} vs {}\n", binary_path, snap_path));
+    print_str(
+        core,
+        &format!(
+            "Testing GUID generation: {} vs {}\n",
+            binary_path, snap_path
+        ),
+    );
 
     match container.test_guid_generation(core, Path::new(binary_path), Path::new(snap_path)) {
         Ok((matched, total)) => {

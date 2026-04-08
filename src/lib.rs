@@ -1,5 +1,5 @@
-pub mod plugin;
 pub mod cmd;
+pub mod plugin;
 pub mod r2;
 pub mod warp;
 

@@ -6,7 +6,10 @@ pub struct Target {
 
 impl Target {
     pub fn new(architecture: String, platform: String) -> Self {
-        Self { architecture, platform }
+        Self {
+            architecture,
+            platform,
+        }
     }
 
     pub fn matches(&self, other: &Target) -> bool {

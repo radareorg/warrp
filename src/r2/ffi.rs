@@ -101,7 +101,14 @@ extern "C" {
     pub fn r_anal_block_op_addr(block: *const RAnalBlock, i: usize) -> *mut c_void;
 
     // Disassembly
-    pub fn r_anal_op(anal: *mut RAnal, op: *mut RAnalOp, addr: u64, buf: *const u8, len: c_int, mask: c_int) -> c_int;
+    pub fn r_anal_op(
+        anal: *mut RAnal,
+        op: *mut RAnalOp,
+        addr: u64,
+        buf: *const u8,
+        len: c_int,
+        mask: c_int,
+    ) -> c_int;
     pub fn r_anal_op_get_bytes(op: *const RAnalOp) -> *const u8;
     pub fn r_anal_op_get_size(op: *const RAnalOp) -> c_int;
 

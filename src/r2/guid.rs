@@ -1,7 +1,9 @@
-use uuid::{Uuid, uuid};
+use uuid::{uuid, Uuid};
 
+use crate::r2::analysis::{
+    is_address_relocatable, FunctionDisassembly, InstructionInfo, RelocatableRegion,
+};
 use crate::r2::ffi::RCore;
-use crate::r2::analysis::{RelocatableRegion, FunctionDisassembly, InstructionInfo, is_address_relocatable};
 
 pub const NAMESPACE_BASICBLOCK: Uuid = uuid!("0192a178-7a5f-7936-8653-3cbaa7d6afe7");
 pub const NAMESPACE_FUNCTION: Uuid = uuid!("0192a179-61ac-7cef-88ed-012296e9492f");
@@ -73,8 +75,12 @@ pub unsafe fn compute_function_guid(
         return Err(format!("No basic blocks found at 0x{:x}", fcn_addr));
     }
 
-    let block_guids: Vec<BasicBlockGUID> = disasm_data.blocks.iter()
-        .filter_map(|block| compute_block_guid_from_instructions(block.addr, &block.instructions, regions).ok())
+    let block_guids: Vec<BasicBlockGUID> = disasm_data
+        .blocks
+        .iter()
+        .filter_map(|block| {
+            compute_block_guid_from_instructions(block.addr, &block.instructions, regions).ok()
+        })
         .collect();
 
     if block_guids.is_empty() {
@@ -93,15 +99,18 @@ fn compute_block_guid_from_instructions(
         return Err("No instructions in block".to_string());
     }
 
-    let bytes: Vec<u8> = instructions.iter().flat_map(|insn| {
-        if insn.is_nop || insn.is_self_move {
-            Vec::new()
-        } else if is_variant_instruction(insn, regions) {
-            vec![0u8; insn.bytes.len()]
-        } else {
-            insn.bytes.clone()
-        }
-    }).collect();
+    let bytes: Vec<u8> = instructions
+        .iter()
+        .flat_map(|insn| {
+            if insn.is_nop || insn.is_self_move {
+                Vec::new()
+            } else if is_variant_instruction(insn, regions) {
+                vec![0u8; insn.bytes.len()]
+            } else {
+                insn.bytes.clone()
+            }
+        })
+        .collect();
 
     if bytes.is_empty() {
         return Err("Block produced no bytes after filtering".to_string());
@@ -191,7 +200,10 @@ mod tests {
             is_nop: false,
             is_self_move: false,
         };
-        let _regions = vec![RelocatableRegion { start: 0x1000, end: 0x3000 }];
+        let _regions = vec![RelocatableRegion {
+            start: 0x1000,
+            end: 0x3000,
+        }];
         assert!(is_variant_instruction(&insn, &_regions));
     }
 
@@ -206,7 +218,10 @@ mod tests {
             is_nop: false,
             is_self_move: false,
         };
-        let regions = vec![RelocatableRegion { start: 0x1000, end: 0x3000 }];
+        let regions = vec![RelocatableRegion {
+            start: 0x1000,
+            end: 0x3000,
+        }];
         assert!(is_variant_instruction(&insn, &regions));
     }
 
@@ -221,7 +236,10 @@ mod tests {
             is_nop: false,
             is_self_move: false,
         };
-        let regions = vec![RelocatableRegion { start: 0x1000, end: 0x3000 }];
+        let regions = vec![RelocatableRegion {
+            start: 0x1000,
+            end: 0x3000,
+        }];
         assert!(is_variant_instruction(&insn, &regions));
     }
 
@@ -236,7 +254,10 @@ mod tests {
             is_nop: false,
             is_self_move: false,
         };
-        let regions = vec![RelocatableRegion { start: 0x1000, end: 0x3000 }];
+        let regions = vec![RelocatableRegion {
+            start: 0x1000,
+            end: 0x3000,
+        }];
         assert!(!is_variant_instruction(&insn, &regions));
     }
 
@@ -306,8 +327,15 @@ mod tests {
             is_self_move: false,
         };
 
-        let regions = vec![RelocatableRegion { start: 0x1000, end: 0x6000 }];
-        let result = compute_block_guid_from_instructions(0x1000, &[variant_insn, normal_insn, nop_insn], &regions);
+        let regions = vec![RelocatableRegion {
+            start: 0x1000,
+            end: 0x6000,
+        }];
+        let result = compute_block_guid_from_instructions(
+            0x1000,
+            &[variant_insn, normal_insn, nop_insn],
+            &regions,
+        );
         assert!(result.is_ok());
         let bg = result.unwrap();
         let bg_expected = BasicBlockGUID::from_bytes(0x1000, &[0x00, 0x00, 0x00, 0x00, 0x00, 0x55]);

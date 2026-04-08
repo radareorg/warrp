@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use std::cell::RefCell;
+use std::collections::HashMap;
 use uuid::Uuid;
 
+use crate::r2::analysis::{self, FunctionDisassembly, FunctionInfo, RelocatableRegion};
 use crate::r2::ffi::RCore;
-use crate::r2::analysis::{self, FunctionInfo, RelocatableRegion, FunctionDisassembly};
 use crate::r2::guid::compute_function_guid;
 
 #[derive(Debug, Clone)]
@@ -65,9 +65,8 @@ impl AnalysisCache {
         self.initialized = true;
 
         // Log completion
-        let cmd = std::ffi::CString::new(
-            format!("echo Cache initialized: {} functions", total)
-        ).unwrap();
+        let cmd =
+            std::ffi::CString::new(format!("echo Cache initialized: {} functions", total)).unwrap();
         crate::r2::ffi::r_core_cmd(core, cmd.as_ptr());
     }
 
@@ -89,20 +88,21 @@ impl AnalysisCache {
         if let Ok(funcs) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
             for func in funcs {
                 // Try both "offset" and "addr"
-                let addr = func.get("offset")
+                let addr = func
+                    .get("offset")
                     .or_else(|| func.get("addr"))
                     .and_then(|v| v.as_u64());
 
                 if let Some(addr) = addr {
-                    let name = func.get("name")
+                    let name = func
+                        .get("name")
                         .and_then(|v| v.as_str())
                         .map(|s| s.to_string());
 
-                    let size = func.get("size")
-                        .and_then(|v| v.as_u64())
-                        .unwrap_or(0);
+                    let size = func.get("size").and_then(|v| v.as_u64()).unwrap_or(0);
 
-                    self.functions.insert(addr, FunctionInfo { addr, size, name });
+                    self.functions
+                        .insert(addr, FunctionInfo { addr, size, name });
                 }
             }
         }
@@ -111,7 +111,9 @@ impl AnalysisCache {
     /// Find which function contains an address
     fn find_function_containing(&self, addr: u64) -> Option<u64> {
         // Binary search for the function that contains this address
-        let idx = self.all_funcs_sorted.binary_search(&addr)
+        let idx = self
+            .all_funcs_sorted
+            .binary_search(&addr)
             .unwrap_or_else(|idx| idx.saturating_sub(1));
 
         if idx < self.all_funcs_sorted.len() {
@@ -146,18 +148,28 @@ impl AnalysisCache {
             for xref in xrefs {
                 let from = xref.get("from").and_then(|v| v.as_u64()).unwrap_or(0);
                 let to = xref.get("to").and_then(|v| v.as_u64()).unwrap_or(0);
-                let ref_type = xref.get("type")
+                let ref_type = xref
+                    .get("type")
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string();
-                let name = xref.get("name").and_then(|n| n.as_str()).map(|s| s.to_string());
+                let name = xref
+                    .get("name")
+                    .and_then(|n| n.as_str())
+                    .map(|s| s.to_string());
 
                 if from != 0 && ref_type == "CALL" {
                     // Find which function contains this call site
                     if let Some(func_addr) = self.find_function_containing(from) {
-                        self.func_xrefs.entry(func_addr)
+                        self.func_xrefs
+                            .entry(func_addr)
                             .or_insert_with(Vec::new)
-                            .push(XrefInfo { from, to, ref_type, name });
+                            .push(XrefInfo {
+                                from,
+                                to,
+                                ref_type,
+                                name,
+                            });
                     }
                 }
             }
@@ -186,7 +198,11 @@ impl AnalysisCache {
     }
 
     /// Get or cache function disassembly (all blocks with instruction bytes)
-    pub unsafe fn get_or_cache_disassembly(&self, core: *mut RCore, addr: u64) -> Option<FunctionDisassembly> {
+    pub unsafe fn get_or_cache_disassembly(
+        &self,
+        core: *mut RCore,
+        addr: u64,
+    ) -> Option<FunctionDisassembly> {
         // Check cache first
         if let Some(disasm) = self.disassembly_cache.borrow().get(&addr) {
             return Some(disasm.clone());
@@ -194,13 +210,16 @@ impl AnalysisCache {
 
         // Fetch and cache
         let disasm = analysis::cache_function_disassembly(core, addr)?;
-        self.disassembly_cache.borrow_mut().insert(addr, disasm.clone());
+        self.disassembly_cache
+            .borrow_mut()
+            .insert(addr, disasm.clone());
         Some(disasm)
     }
 
     /// Get xrefs FROM a function (calls made by this function)
     pub fn get_xrefs_from_function(&self, func_addr: u64) -> &[XrefInfo] {
-        self.func_xrefs.get(&func_addr)
+        self.func_xrefs
+            .get(&func_addr)
             .map(|v| v.as_slice())
             .unwrap_or_default()
     }

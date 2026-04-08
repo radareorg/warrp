@@ -1,5 +1,3 @@
-
-
 /// Clean symbol name by removing common prefixes and suffixes.
 pub fn clean_symbol_name(symbol_name: &str) -> String {
     let mut result = symbol_name;
@@ -42,7 +40,10 @@ mod tests {
     fn test_clean_symbol_name() {
         assert_eq!(clean_symbol_name("sym.free"), "free");
         assert_eq!(clean_symbol_name("imp.free"), "free");
-        assert_eq!(clean_symbol_name("__imp__RemoveDirectoryW@4"), "RemoveDirectoryW");
+        assert_eq!(
+            clean_symbol_name("__imp__RemoveDirectoryW@4"),
+            "RemoveDirectoryW"
+        );
         assert_eq!(clean_symbol_name("j___free_base"), "free_base");
         assert_eq!(clean_symbol_name("fcn.0x1234"), "0x1234");
     }

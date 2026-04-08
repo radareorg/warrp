@@ -1,7 +1,9 @@
-use std::ffi::{c_void, c_char, c_int, CStr};
+use std::ffi::{c_char, c_int, c_void, CStr};
 
 use crate::cmd::handle_zw_command;
-use crate::r2::ffi::{RCorePluginSession, R_LIB_TYPE_CORE, R_PLUGIN_STATUS_OK, r_core_cmd_str, free};
+use crate::r2::ffi::{
+    free, r_core_cmd_str, RCorePluginSession, R_LIB_TYPE_CORE, R_PLUGIN_STATUS_OK,
+};
 use crate::warp::container::WarpContainer;
 
 const R2_VERSION: &str = "6.1.3\0";
@@ -118,5 +120,6 @@ unsafe extern "C" fn warp_call(session: *mut RCorePluginSession, input: *const c
         } else {
             false
         }
-    }).unwrap_or(false)
+    })
+    .unwrap_or(false)
 }

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 
-use uuid::{Uuid, uuid};
+use uuid::{uuid, Uuid};
 
 use crate::r2::guid::FunctionGUID as R2FunctionGUID;
 
@@ -18,7 +18,9 @@ impl FunctionGUID {
     }
 
     pub fn from_uuid(uuid: uuid::Uuid) -> Self {
-        Self { bytes: *uuid.as_bytes() }
+        Self {
+            bytes: *uuid.as_bytes(),
+        }
     }
 
     pub fn to_uuid(&self) -> uuid::Uuid {
@@ -169,17 +171,44 @@ impl Function {
 #[derive(Debug, Clone)]
 pub enum TypeClass {
     Void,
-    Boolean { width: Option<u16> },
-    Integer { width: Option<u16>, signed: bool },
-    Float { width: Option<u16> },
-    Character { width: Option<u16> },
-    Pointer { child: Box<Type>, width: Option<u16> },
-    Array { element: Box<Type>, length: Option<u64> },
-    Structure { members: Vec<StructureMember> },
-    Enumeration { variants: Vec<EnumVariant> },
-    Union { members: Vec<UnionMember> },
-    Function { calling_convention: String, params: Vec<Type>, return_type: Box<Type> },
-    Referrer { name: String },
+    Boolean {
+        width: Option<u16>,
+    },
+    Integer {
+        width: Option<u16>,
+        signed: bool,
+    },
+    Float {
+        width: Option<u16>,
+    },
+    Character {
+        width: Option<u16>,
+    },
+    Pointer {
+        child: Box<Type>,
+        width: Option<u16>,
+    },
+    Array {
+        element: Box<Type>,
+        length: Option<u64>,
+    },
+    Structure {
+        members: Vec<StructureMember>,
+    },
+    Enumeration {
+        variants: Vec<EnumVariant>,
+    },
+    Union {
+        members: Vec<UnionMember>,
+    },
+    Function {
+        calling_convention: String,
+        params: Vec<Type>,
+        return_type: Box<Type>,
+    },
+    Referrer {
+        name: String,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -222,7 +251,10 @@ impl Type {
     pub fn integer(bits: u16, signed: bool) -> Self {
         Self {
             name: None,
-            class: TypeClass::Integer { width: Some(bits), signed },
+            class: TypeClass::Integer {
+                width: Some(bits),
+                signed,
+            },
             alignment: None,
             confidence: 255,
         }
@@ -231,7 +263,10 @@ impl Type {
     pub fn pointer(child: Type) -> Self {
         Self {
             name: None,
-            class: TypeClass::Pointer { child: Box::new(child), width: None },
+            class: TypeClass::Pointer {
+                child: Box::new(child),
+                width: None,
+            },
             alignment: None,
             confidence: 255,
         }

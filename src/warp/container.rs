@@ -1,14 +1,14 @@
 use std::collections::HashMap;
-use std::path::Path;
 use std::fs::File;
 use std::io::Read;
+use std::path::Path;
 
 use uuid::Uuid;
 
-use crate::r2::ffi::RCore;
-use crate::r2::guid::FunctionGUID as R2FunctionGUID;
 use crate::r2::analysis::RelocatableRegion;
 use crate::r2::cache::AnalysisCache;
+use crate::r2::ffi::RCore;
+use crate::r2::guid::FunctionGUID as R2FunctionGUID;
 use crate::warp::signature::{Constraint, Function, FunctionGUID, Symbol};
 use crate::warp::types::Target;
 
@@ -43,8 +43,7 @@ impl WarpContainer {
 
     /// Load a WARP file into memory
     pub fn load(&mut self, path: &Path) -> Result<(), String> {
-        let mut file = File::open(path)
-            .map_err(|e| format!("Failed to open file: {}", e))?;
+        let mut file = File::open(path).map_err(|e| format!("Failed to open file: {}", e))?;
 
         let mut bytes = Vec::new();
         file.read_to_end(&mut bytes)
@@ -121,10 +120,8 @@ impl WarpContainer {
 
                     let name = func.symbol.name.clone();
 
-                    let mut function = Function::new(
-                        FunctionGUID { bytes },
-                        Symbol::function(name),
-                    );
+                    let mut function =
+                        Function::new(FunctionGUID { bytes }, Symbol::function(name));
 
                     let mut constraints = std::collections::HashSet::new();
                     for constraint in func.constraints.iter() {
@@ -149,11 +146,13 @@ impl WarpContainer {
         // Extract target
         let target = if let Some(target_obj) = obj.get("target") {
             Target::new(
-                target_obj.get("architecture")
+                target_obj
+                    .get("architecture")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown")
                     .to_string(),
-                target_obj.get("platform")
+                target_obj
+                    .get("platform")
                     .and_then(|v| v.as_str())
                     .unwrap_or("unknown")
                     .to_string(),
@@ -164,7 +163,8 @@ impl WarpContainer {
 
         // Extract functions
         let functions = if let Some(funcs_arr) = obj.get("functions").and_then(|v| v.as_array()) {
-            funcs_arr.iter()
+            funcs_arr
+                .iter()
                 .filter_map(|f| Self::parse_json_function(f))
                 .collect()
         } else {
@@ -180,7 +180,8 @@ impl WarpContainer {
         let guid_str = obj.get("guid")?.as_str()?;
         let guid = FunctionGUID::from_uuid(uuid::Uuid::parse_str(guid_str).ok()?);
 
-        let name = obj.get("name")
+        let name = obj
+            .get("name")
             .and_then(|v| v.as_str())
             .unwrap_or("unknown")
             .to_string();
@@ -190,23 +191,24 @@ impl WarpContainer {
 
     /// Save signatures to a WARP file
     pub fn save(&self, path: &Path) -> Result<(), String> {
+        use std::collections::HashSet;
         use std::fs::File;
         use std::io::Write;
-        use std::collections::HashSet;
+        use uuid::Uuid;
         use warp::chunk::{Chunk, ChunkKind, CompressionType};
         use warp::signature::chunk::SignatureChunk;
+        use warp::signature::comment::FunctionComment;
+        use warp::signature::constraint::Constraint as WarpConstraint;
         use warp::signature::function::Function as WarpFunction;
         use warp::signature::function::FunctionGUID as WarpFunctionGUID;
-        use warp::signature::constraint::Constraint as WarpConstraint;
         use warp::symbol::Symbol as WarpSymbol;
         use warp::symbol::SymbolClass;
         use warp::symbol::SymbolModifiers;
-        use warp::signature::comment::FunctionComment;
         use warp::target::Target as WarpTarget;
         use warp::{WarpFile, WarpFileHeader};
-        use uuid::Uuid;
 
-        let warp_functions: Vec<WarpFunction> = self.functions
+        let warp_functions: Vec<WarpFunction> = self
+            .functions
             .values()
             .flat_map(|funcs| funcs.iter())
             .map(|f| {
@@ -218,15 +220,23 @@ impl WarpContainer {
                         crate::warp::signature::SymbolClass::Data => SymbolClass::Data,
                         crate::warp::signature::SymbolClass::Bare => SymbolClass::Bare,
                     },
-                    f.symbol.modifiers.iter().map(|m| {
-                        match m {
-                            crate::warp::signature::SymbolModifiers::External => SymbolModifiers::External,
-                            crate::warp::signature::SymbolModifiers::Exported => SymbolModifiers::Exported,
-                        }
-                    }).collect(),
+                    f.symbol
+                        .modifiers
+                        .iter()
+                        .map(|m| match m {
+                            crate::warp::signature::SymbolModifiers::External => {
+                                SymbolModifiers::External
+                            }
+                            crate::warp::signature::SymbolModifiers::Exported => {
+                                SymbolModifiers::Exported
+                            }
+                        })
+                        .collect(),
                 );
 
-                let warp_constraints: HashSet<WarpConstraint> = f.constraints.iter()
+                let warp_constraints: HashSet<WarpConstraint> = f
+                    .constraints
+                    .iter()
                     .filter_map(|c| {
                         if let Some(guid) = &c.guid {
                             Some(WarpConstraint::from_function(
@@ -237,16 +247,23 @@ impl WarpContainer {
                             let warp_sym = WarpSymbol::new(
                                 sym.name.clone(),
                                 match sym.class {
-                                    crate::warp::signature::SymbolClass::Function => SymbolClass::Function,
+                                    crate::warp::signature::SymbolClass::Function => {
+                                        SymbolClass::Function
+                                    }
                                     crate::warp::signature::SymbolClass::Data => SymbolClass::Data,
                                     crate::warp::signature::SymbolClass::Bare => SymbolClass::Bare,
                                 },
-                                sym.modifiers.iter().map(|m| {
-                                    match m {
-                                        crate::warp::signature::SymbolModifiers::External => SymbolModifiers::External,
-                                        crate::warp::signature::SymbolModifiers::Exported => SymbolModifiers::Exported,
-                                    }
-                                }).collect(),
+                                sym.modifiers
+                                    .iter()
+                                    .map(|m| match m {
+                                        crate::warp::signature::SymbolModifiers::External => {
+                                            SymbolModifiers::External
+                                        }
+                                        crate::warp::signature::SymbolModifiers::Exported => {
+                                            SymbolModifiers::Exported
+                                        }
+                                    })
+                                    .collect(),
                             );
                             Some(WarpConstraint::from_symbol(&warp_sym, Some(c.offset)))
                         } else {
@@ -260,12 +277,14 @@ impl WarpContainer {
                     symbol,
                     ty: None,
                     constraints: warp_constraints,
-                    comments: f.comments.iter().map(|c| {
-                        FunctionComment {
+                    comments: f
+                        .comments
+                        .iter()
+                        .map(|c| FunctionComment {
                             offset: c.offset,
                             text: c.text.clone(),
-                        }
-                    }).collect(),
+                        })
+                        .collect(),
                     variables: vec![],
                 }
             })
@@ -276,15 +295,13 @@ impl WarpContainer {
         }
 
         // Create signature chunk
-        let sig_chunk = SignatureChunk::new(&warp_functions)
-            .ok_or("Failed to create signature chunk")?;
+        let sig_chunk =
+            SignatureChunk::new(&warp_functions).ok_or("Failed to create signature chunk")?;
 
         // Create target
         let target = WarpTarget {
-            architecture: self.target.as_ref()
-                .map(|t| t.architecture.clone()),
-            platform: self.target.as_ref()
-                .map(|t| t.platform.clone()),
+            architecture: self.target.as_ref().map(|t| t.architecture.clone()),
+            platform: self.target.as_ref().map(|t| t.platform.clone()),
         };
 
         // Create chunk with header
@@ -295,17 +312,13 @@ impl WarpContainer {
         );
 
         // Create WARP file
-        let warp_file = WarpFile::new(
-            WarpFileHeader::new(),
-            vec![chunk],
-        );
+        let warp_file = WarpFile::new(WarpFileHeader::new(), vec![chunk]);
 
         // Serialize to bytes
         let bytes = warp_file.to_bytes();
 
         // Write to file
-        let mut file = File::create(path)
-            .map_err(|e| format!("Failed to create file: {}", e))?;
+        let mut file = File::create(path).map_err(|e| format!("Failed to create file: {}", e))?;
 
         file.write_all(&bytes)
             .map_err(|e| format!("Failed to write file: {}", e))?;
@@ -320,17 +333,17 @@ impl WarpContainer {
         self.functions.get(&bytes).map(|v| v.as_slice())
     }
 
-        // Match function with constraint-based disambiguation
-        ///
-        /// When multiple functions have the same GUID, use constraints to pick the best match.
-        /// Returns (function index, match score) for each candidate.
-        pub unsafe fn match_with_constraints(
-            &self,
-            core: *mut RCore,
-            addr: u64,
-            regions: &[RelocatableRegion],
-        ) -> Option<Vec<(&Function, usize)>> {
-            let guid = crate::r2::guid::compute_function_guid(core, addr, regions, None).ok()?;
+    // Match function with constraint-based disambiguation
+    ///
+    /// When multiple functions have the same GUID, use constraints to pick the best match.
+    /// Returns (function index, match score) for each candidate.
+    pub unsafe fn match_with_constraints(
+        &self,
+        core: *mut RCore,
+        addr: u64,
+        regions: &[RelocatableRegion],
+    ) -> Option<Vec<(&Function, usize)>> {
+        let guid = crate::r2::guid::compute_function_guid(core, addr, regions, None).ok()?;
         let candidates = self.find_by_guid(&guid)?;
 
         if candidates.is_empty() {
@@ -349,7 +362,8 @@ impl WarpContainer {
         let mut scored: Vec<_> = candidates
             .iter()
             .map(|candidate| {
-                let score = self.score_constraint_match(&binary_constraints, &candidate.constraints);
+                let score =
+                    self.score_constraint_match(&binary_constraints, &candidate.constraints);
                 (candidate, score)
             })
             .collect();
@@ -381,30 +395,59 @@ impl WarpContainer {
         let result = crate::r2::ffi::r_core_cmd_str(core, cmd.as_ptr());
 
         if !result.is_null() {
-            let json_str = std::ffi::CStr::from_ptr(result).to_string_lossy().into_owned();
+            let json_str = std::ffi::CStr::from_ptr(result)
+                .to_string_lossy()
+                .into_owned();
             crate::r2::ffi::free(result as *mut _);
 
             if let Ok(xrefs) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
                 for xref in xrefs {
-                    if xref.get("type").and_then(|v| v.as_str()).unwrap_or("") != "CALL" { continue; }
+                    if xref.get("type").and_then(|v| v.as_str()).unwrap_or("") != "CALL" {
+                        continue;
+                    }
                     let call_site = xref.get("from").and_then(|v| v.as_u64()).unwrap_or(0);
                     let call_target = xref.get("to").and_then(|v| v.as_u64()).unwrap_or(0);
-                    if call_target == 0 { continue; }
+                    if call_target == 0 {
+                        continue;
+                    }
 
                     let offset = call_site as i64 - func_start as i64;
 
-                    if let Ok(target_guid) = crate::r2::guid::compute_function_guid(core, call_target, regions, None) {
-                        constraints.push((offset, ConstraintType::Constraint(Uuid::new_v5(&NAMESPACE_CONSTRAINT, target_guid.as_bytes()))));
+                    if let Ok(target_guid) =
+                        crate::r2::guid::compute_function_guid(core, call_target, regions, None)
+                    {
+                        constraints.push((
+                            offset,
+                            ConstraintType::Constraint(Uuid::new_v5(
+                                &NAMESPACE_CONSTRAINT,
+                                target_guid.as_bytes(),
+                            )),
+                        ));
                     }
 
-                    let sym_cmd = std::ffi::CString::new(format!("is.j @ 0x{:x}", call_target)).unwrap();
+                    let sym_cmd =
+                        std::ffi::CString::new(format!("is.j @ 0x{:x}", call_target)).unwrap();
                     let sym_result = crate::r2::ffi::r_core_cmd_str(core, sym_cmd.as_ptr());
                     if !sym_result.is_null() {
-                        let sym_str = std::ffi::CStr::from_ptr(sym_result).to_string_lossy().into_owned();
+                        let sym_str = std::ffi::CStr::from_ptr(sym_result)
+                            .to_string_lossy()
+                            .into_owned();
                         crate::r2::ffi::free(sym_result as *mut _);
-                        if let Ok(symbols) = serde_json::from_str::<Vec<serde_json::Value>>(&sym_str) {
-                            if let Some(name) = symbols.first().and_then(|s| s.get("name")).and_then(|n| n.as_str()) {
-                                constraints.push((offset, ConstraintType::Constraint(Uuid::new_v5(&NAMESPACE_CONSTRAINT, clean_symbol_name(name).as_bytes()))));
+                        if let Ok(symbols) =
+                            serde_json::from_str::<Vec<serde_json::Value>>(&sym_str)
+                        {
+                            if let Some(name) = symbols
+                                .first()
+                                .and_then(|s| s.get("name"))
+                                .and_then(|n| n.as_str())
+                            {
+                                constraints.push((
+                                    offset,
+                                    ConstraintType::Constraint(Uuid::new_v5(
+                                        &NAMESPACE_CONSTRAINT,
+                                        clean_symbol_name(name).as_bytes(),
+                                    )),
+                                ));
                             }
                         }
                     }
@@ -419,11 +462,23 @@ impl WarpContainer {
         if let Ok(pos) = sorted_funcs.binary_search(&addr) {
             let start = pos.saturating_sub(2);
             for i in start..pos.min(sorted_funcs.len()) {
-                self.add_adjacency_constraints(core, sorted_funcs[i], func_start, regions, &mut constraints);
+                self.add_adjacency_constraints(
+                    core,
+                    sorted_funcs[i],
+                    func_start,
+                    regions,
+                    &mut constraints,
+                );
             }
             let end = (pos + 3).min(sorted_funcs.len());
             for i in (pos + 1)..end {
-                self.add_adjacency_constraints(core, sorted_funcs[i], func_start, regions, &mut constraints);
+                self.add_adjacency_constraints(
+                    core,
+                    sorted_funcs[i],
+                    func_start,
+                    regions,
+                    &mut constraints,
+                );
             }
         }
 
@@ -443,12 +498,21 @@ impl WarpContainer {
         let offset = adj_addr as i64 - func_start as i64;
 
         if let Ok(guid) = crate::r2::guid::compute_function_guid(core, adj_addr, regions, None) {
-            constraints.push((offset, ConstraintType::Constraint(Uuid::new_v5(&NAMESPACE_CONSTRAINT, guid.as_bytes()))));
+            constraints.push((
+                offset,
+                ConstraintType::Constraint(Uuid::new_v5(&NAMESPACE_CONSTRAINT, guid.as_bytes())),
+            ));
         }
 
         if let Some(adj_info) = crate::r2::analysis::get_function_at(core, adj_addr) {
             if let Some(name) = adj_info.name {
-                constraints.push((offset, ConstraintType::Constraint(Uuid::new_v5(&NAMESPACE_CONSTRAINT, clean_symbol_name(&name).as_bytes()))));
+                constraints.push((
+                    offset,
+                    ConstraintType::Constraint(Uuid::new_v5(
+                        &NAMESPACE_CONSTRAINT,
+                        clean_symbol_name(&name).as_bytes(),
+                    )),
+                ));
             }
         }
     }
@@ -459,16 +523,25 @@ impl WarpContainer {
         binary_constraints: &[(i64, ConstraintType)],
         sig_constraints: &[Constraint],
     ) -> usize {
-        if sig_constraints.is_empty() { return 50; }
+        if sig_constraints.is_empty() {
+            return 50;
+        }
         let mut matches = 0;
         let total = sig_constraints.len();
 
         for sig_c in sig_constraints {
-            let Some(sig_cguid) = &sig_c.constraint_guid else { continue };
+            let Some(sig_cguid) = &sig_c.constraint_guid else {
+                continue;
+            };
             for (offset, binary_c) in binary_constraints {
-                if (sig_c.offset - offset).abs() > 16 { continue; }
+                if (sig_c.offset - offset).abs() > 16 {
+                    continue;
+                }
                 let ConstraintType::Constraint(binary_cguid) = binary_c;
-                if sig_cguid == binary_cguid { matches += 1; break; }
+                if sig_cguid == binary_cguid {
+                    matches += 1;
+                    break;
+                }
             }
         }
 
@@ -498,11 +571,15 @@ impl WarpContainer {
         }
 
         // Use cached GUID computation
-        let guid_uuid = self.cache.get_or_compute_guid(core, addr)
+        let guid_uuid = self
+            .cache
+            .get_or_compute_guid(core, addr)
             .ok_or_else(|| format!("Failed to compute GUID for 0x{:x}", addr))?;
 
         // Get function name from cache
-        let name = self.cache.get_function(addr)
+        let name = self
+            .cache
+            .get_function(addr)
             .and_then(|f| f.name.clone())
             .unwrap_or_else(|| format!("fcn_{:08x}", addr));
 
@@ -523,7 +600,11 @@ impl WarpContainer {
     }
 
     /// Collect constraints for a function
-    unsafe fn collect_constraints(&self, core: *mut RCore, addr: u64) -> std::collections::HashSet<Constraint> {
+    unsafe fn collect_constraints(
+        &self,
+        core: *mut RCore,
+        addr: u64,
+    ) -> std::collections::HashSet<Constraint> {
         use std::collections::HashSet as StdHashSet;
 
         let mut constraints = StdHashSet::new();
@@ -560,7 +641,8 @@ impl WarpContainer {
                 // External/import - use symbol name from xref
                 if let Some(ref name) = xref.name {
                     let cleaned = crate::warp::constraint::clean_symbol_name(name);
-                    let symbol = Symbol::new(cleaned, crate::warp::signature::SymbolClass::Function);
+                    let symbol =
+                        Symbol::new(cleaned, crate::warp::signature::SymbolClass::Function);
                     let constraint = Constraint::from_symbol(&symbol, Some(call_site_offset));
                     constraints.insert(constraint);
                 }
@@ -573,10 +655,8 @@ impl WarpContainer {
 
             // GUID constraint (cached)
             if let Some(adj_guid) = self.cache.get_or_compute_guid(core, adj_addr) {
-                let constraint = Constraint::from_function(
-                    &FunctionGUID::from_uuid(adj_guid),
-                    Some(offset),
-                );
+                let constraint =
+                    Constraint::from_function(&FunctionGUID::from_uuid(adj_guid), Some(offset));
                 constraints.insert(constraint);
             }
 
@@ -584,7 +664,8 @@ impl WarpContainer {
             if let Some(adj_info) = self.cache.get_function(adj_addr) {
                 if let Some(ref name) = adj_info.name {
                     let cleaned = crate::warp::constraint::clean_symbol_name(name);
-                    let symbol = Symbol::new(cleaned, crate::warp::signature::SymbolClass::Function);
+                    let symbol =
+                        Symbol::new(cleaned, crate::warp::signature::SymbolClass::Function);
                     let constraint = Constraint::from_symbol(&symbol, Some(offset));
                     constraints.insert(constraint);
                 }
@@ -631,9 +712,7 @@ impl WarpContainer {
 
     /// Get list of loaded files
     pub fn list_files(&self) -> Vec<&str> {
-        self.loaded_files.iter()
-            .map(|f| f.path.as_str())
-            .collect()
+        self.loaded_files.iter().map(|f| f.path.as_str()).collect()
     }
 
     /// Get the current target
