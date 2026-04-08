@@ -16,11 +16,11 @@ impl FunctionGUID {
     pub fn new(bytes: [u8; 16]) -> Self {
         Self { bytes }
     }
-    
+
     pub fn from_uuid(uuid: uuid::Uuid) -> Self {
         Self { bytes: *uuid.as_bytes() }
     }
-    
+
     pub fn to_uuid(&self) -> uuid::Uuid {
         uuid::Uuid::from_bytes(self.bytes)
     }
@@ -78,7 +78,7 @@ impl Symbol {
             class,
         }
     }
-    
+
     pub fn function(name: String) -> Self {
         Self::new(name, SymbolClass::Function)
     }
@@ -218,7 +218,7 @@ impl Type {
             confidence: 255,
         }
     }
-    
+
     pub fn integer(bits: u16, signed: bool) -> Self {
         Self {
             name: None,
@@ -227,7 +227,7 @@ impl Type {
             confidence: 255,
         }
     }
-    
+
     pub fn pointer(child: Type) -> Self {
         Self {
             name: None,

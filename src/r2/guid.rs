@@ -65,24 +65,17 @@ pub unsafe fn compute_function_guid(
 ) -> Result<FunctionGUID, String> {
     let disasm_data = match disasm {
         Some(d) => d.clone(),
-        None => {
-            crate::r2::analysis::cache_function_disassembly(core, fcn_addr)
-                .ok_or_else(|| format!("No disassembly for function at 0x{:x}", fcn_addr))?
-        }
+        None => crate::r2::analysis::cache_function_disassembly(core, fcn_addr)
+            .ok_or_else(|| format!("No disassembly for function at 0x{:x}", fcn_addr))?,
     };
 
     if disasm_data.blocks.is_empty() {
         return Err(format!("No basic blocks found at 0x{:x}", fcn_addr));
     }
 
-    let mut block_guids: Vec<BasicBlockGUID> = Vec::new();
-
-    for block in &disasm_data.blocks {
-        match compute_block_guid_from_instructions(block.addr, &block.instructions, regions) {
-            Ok(bg) => block_guids.push(bg),
-            Err(_) => {}
-        }
-    }
+    let block_guids: Vec<BasicBlockGUID> = disasm_data.blocks.iter()
+        .filter_map(|block| compute_block_guid_from_instructions(block.addr, &block.instructions, regions).ok())
+        .collect();
 
     if block_guids.is_empty() {
         return Err("No valid basic block GUIDs computed".to_string());
@@ -100,24 +93,15 @@ fn compute_block_guid_from_instructions(
         return Err("No instructions in block".to_string());
     }
 
-    let mut bytes = Vec::new();
-
-    for insn in instructions {
-        if insn.is_nop {
-            continue;
-        }
-
-        if insn.is_self_move {
-            continue;
-        }
-
-        if is_variant_instruction(insn, regions) {
-            let masked = vec![0u8; insn.bytes.len()];
-            bytes.extend(masked);
+    let bytes: Vec<u8> = instructions.iter().flat_map(|insn| {
+        if insn.is_nop || insn.is_self_move {
+            Vec::new()
+        } else if is_variant_instruction(insn, regions) {
+            vec![0u8; insn.bytes.len()]
         } else {
-            bytes.extend(&insn.bytes);
+            insn.bytes.clone()
         }
-    }
+    }).collect();
 
     if bytes.is_empty() {
         return Err("Block produced no bytes after filtering".to_string());
@@ -151,21 +135,8 @@ fn is_variant_instruction(insn: &InstructionInfo, regions: &[RelocatableRegion])
 }
 
 fn is_call_or_jmp_insn(bytes: &[u8]) -> bool {
-    if bytes.len() >= 5 {
-        if bytes[0] == 0xe8 || bytes[0] == 0xe9 {
-            return true;
-        }
-    }
-    if bytes.len() >= 2 {
-        if bytes[0] == 0xff {
-            let modrm = bytes[1];
-            let reg_field = (modrm >> 3) & 0x7;
-            if reg_field == 2 || reg_field == 4 {
-                return true;
-            }
-        }
-    }
-    false
+    bytes.len() >= 5 && matches!(bytes[0], 0xe8 | 0xe9)
+        || bytes.len() >= 2 && bytes[0] == 0xff && matches!((bytes[1] >> 3) & 0x7, 2 | 4)
 }
 
 pub fn compute_constraint_guid(func_guid: &FunctionGUID) -> Uuid {

@@ -77,13 +77,13 @@ extern "C" {
     pub fn r_core_cmd(core: *mut RCore, cmd: *const c_char) -> c_int;
     pub fn r_core_cmd_str(core: *mut RCore, cmd: *const c_char) -> *mut c_char;
     pub fn r_core_get_cons(core: *mut RCore) -> *mut RCons;
-    
+
     // Analysis
     pub fn r_anal_get_fcn_in(anal: *mut RAnal, addr: u64, filter: c_int) -> *mut RAnalFunction;
     pub fn r_anal_get_function_at(anal: *mut RAnal, addr: u64) -> *mut RAnalFunction;
     pub fn r_anal_get_function_byname(anal: *mut RAnal, name: *const c_char) -> *mut RAnalFunction;
     pub fn r_anal_functions(anal: *mut RAnal) -> *mut RList;
-    
+
     // Function access
     pub fn r_anal_function_addr(fcn: *const RAnalFunction) -> u64;
     pub fn r_anal_function_size(fcn: *const RAnalFunction) -> u64;
@@ -93,23 +93,23 @@ extern "C" {
     pub fn r_anal_function_xrefs(fcn: *const RAnalFunction) -> *mut RVecAnalRef;
     pub fn r_anal_function_get_refs(fcn: *const RAnalFunction) -> *mut RVecAnalRef;
     pub fn r_anal_function_vars(fcn: *const RAnalFunction) -> *mut RList;
-    
+
     // Basic block access
     pub fn r_anal_block_addr(block: *const RAnalBlock) -> u64;
     pub fn r_anal_block_size(block: *const RAnalBlock) -> u64;
     pub fn r_anal_block_successors(block: *const RAnalBlock) -> *mut RList;
     pub fn r_anal_block_op_addr(block: *const RAnalBlock, i: usize) -> *mut c_void;
-    
+
     // Disassembly
     pub fn r_anal_op(anal: *mut RAnal, op: *mut RAnalOp, addr: u64, buf: *const u8, len: c_int, mask: c_int) -> c_int;
     pub fn r_anal_op_get_bytes(op: *const RAnalOp) -> *const u8;
     pub fn r_anal_op_get_size(op: *const RAnalOp) -> c_int;
-    
+
     // IO/Memory
     pub fn r_io_read_at(io: *mut RIO, addr: u64, buf: *mut u8, len: c_int);
     pub fn r_io_map_get(io: *mut RIO, addr: u64) -> *mut c_void;
     pub fn r_io_section_get(io: *mut RIO, addr: u64) -> *mut c_void;
-    
+
     // List iteration
     pub fn r_list_iter(list: *mut RList) -> *mut RListIter;
     pub fn r_list_iter_get(iter: *mut RListIter) -> *mut c_void;
@@ -117,13 +117,13 @@ extern "C" {
     pub fn r_list_first(list: *const RList) -> *mut c_void;
     pub fn r_list_length(list: *const RList) -> c_int;
     pub fn r_list_free(list: *mut RList);
-    
+
     // Console output
     pub fn r_cons_printf(cons: *mut RCons, fmt: *const c_char, ...) -> c_int;
     pub fn r_cons_print(cons: *mut RCons, msg: *const c_char);
     pub fn r_cons_newline(cons: *mut RCons);
     pub fn r_cons_flush(cons: *mut RCons);
-    
+
     // Memory management
     pub fn free(ptr: *mut c_void);
     pub fn r_mem_free(ptr: *mut c_void);

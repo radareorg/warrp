@@ -115,21 +115,21 @@ r2 -e core_warp=true /path/to/binary
 
 ## Development Status
 
-| Feature | Status |
-|---------|--------|
-| Plugin registration | ✅ Complete |
-| Command handler (`zw` namespace) | ✅ Complete |
-| GUID generation (UUIDv5) | ✅ Complete |
-| WARP file loading | ✅ Complete (FlatBuffers) |
-| WARP file saving | ✅ Complete |
-| FlatBuffers I/O | ✅ Complete |
-| Function matching | ✅ Complete |
-| Metadata application | ✅ Complete (names, comments) |
-| Progress display | ✅ Complete (interactive mode) |
-| Constraint collection | ✅ Complete (adjacency + call sites) |
-| Constraint matching | ✅ Complete (disambiguation) |
-| Performance optimization | ✅ Complete (caching, batch fetch) |
-| GUID snapshot testing | ❌ TODO |
+| Feature                          | Status                               |
+| -------------------------------- | ------------------------------------ |
+| Plugin registration              | ✅ Complete                          |
+| Command handler (`zw` namespace) | ✅ Complete                          |
+| GUID generation (UUIDv5)         | ✅ Complete                          |
+| WARP file loading                | ✅ Complete (FlatBuffers)            |
+| WARP file saving                 | ✅ Complete                          |
+| FlatBuffers I/O                  | ✅ Complete                          |
+| Function matching                | ✅ Complete                          |
+| Metadata application             | ✅ Complete (names, comments)        |
+| Progress display                 | ✅ Complete (interactive mode)       |
+| Constraint collection            | ✅ Complete (adjacency + call sites) |
+| Constraint matching              | ✅ Complete (disambiguation)         |
+| Performance optimization         | ✅ Complete (caching, batch fetch)   |
+| GUID snapshot testing            | ❌ TODO                              |
 
 ## License
 

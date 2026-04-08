@@ -139,6 +139,12 @@ unsafe fn cmd_save(
     }
 }
 
+unsafe fn resolve_address(args: &[&str], core: *mut RCore) -> Option<u64> {
+    let addr_str = args.iter().find(|a| !a.starts_with('-')).copied().unwrap_or("$$");
+    let addr = parse_address(core, addr_str);
+    if addr == 0 { show_error(core, "Invalid address"); None } else { Some(addr) }
+}
+
 unsafe fn cmd_match(
     core: *mut RCore,
     container: &mut WarpContainer,
@@ -154,23 +160,12 @@ unsafe fn cmd_match(
         return true;
     }
 
-    let match_all = args.contains(&"-a");
-
-    if match_all {
-        cmd_match_all(core, container)
-    } else {
-        let addr_str = args.iter()
-            .find(|a| !a.starts_with('-'))
-            .copied()
-            .unwrap_or("$$");
-
-        let addr = parse_address(core, addr_str);
-        if addr == 0 {
-            show_error(core, "Invalid address");
-            return true;
-        }
-
-        cmd_match_single(core, container, addr)
+    if args.contains(&"-a") {
+        return cmd_match_all(core, container);
+    }
+    match resolve_address(args, core) {
+        Some(addr) => cmd_match_single(core, container, addr),
+        None => true,
     }
 }
 
@@ -332,23 +327,12 @@ unsafe fn cmd_create(
     container: &mut WarpContainer,
     args: &[&str],
 ) -> bool {
-    let create_all = args.contains(&"-a");
-
-    if create_all {
-        cmd_create_all(core, container)
-    } else {
-        let addr_str = args.iter()
-            .find(|a| !a.starts_with('-'))
-            .copied()
-            .unwrap_or("$$");
-
-        let addr = parse_address(core, addr_str);
-        if addr == 0 {
-            show_error(core, "Invalid address");
-            return true;
-        }
-
-        cmd_create_single(core, container, addr)
+    if args.contains(&"-a") {
+        return cmd_create_all(core, container);
+    }
+    match resolve_address(args, core) {
+        Some(addr) => cmd_create_single(core, container, addr),
+        None => true,
     }
 }
 
@@ -359,54 +343,24 @@ unsafe fn cmd_create_all(core: *mut RCore, container: &mut WarpContainer) -> boo
     }
 
     let interactive = analysis::is_interactive(core);
-
-    if interactive {
-        print_str(core, "Initializing analysis cache...");
-        crate::r2::ffi::r_cons_flush(
-            crate::r2::ffi::r_core_get_cons(core)
-        );
-    }
+    let cons = crate::r2::ffi::r_core_get_cons(core);
+    if interactive { print_str(core, "Initializing analysis cache..."); crate::r2::ffi::r_cons_flush(cons); }
 
     container.initialize_cache(core);
-
     let functions = container.cache.get_all_functions().to_vec();
     let total = functions.len();
+    if total == 0 { show_error(core, "No functions found in current binary."); return true; }
 
-    if total == 0 {
-        show_error(core, "No functions found in current binary.");
-        return true;
-    }
-
-    if interactive {
-        print_str(core, &format!("\rCreating WARP signatures for {} functions...\n", total));
-    } else {
-        print_str(core, &format!("Creating WARP signatures for {} functions...\n", total));
-    }
+    print_str(core, &format!("Creating WARP signatures for {} functions...\n", total));
 
     for (i, fcn_addr) in functions.iter().enumerate() {
-        if interactive {
-            print_str(core, &format!("\rProcessing {}/{}...", i + 1, total));
-            crate::r2::ffi::r_cons_flush(
-                crate::r2::ffi::r_core_get_cons(core)
-            );
-        }
-
+        if interactive { print_str(core, &format!("\rProcessing {}/{}...", i + 1, total)); crate::r2::ffi::r_cons_flush(cons); }
         if let Err(e) = container.add_function_from_binary(core, *fcn_addr) {
-            if interactive {
-                print_str(core, &format!(
-                    "\nWarning: Failed to add function at 0x{:x}: {}\n",
-                    fcn_addr, e
-                ));
-            }
+            if interactive { print_str(core, &format!("\nWarning: Failed to add function at 0x{:x}: {}\n", fcn_addr, e)); }
         }
     }
 
-    if interactive {
-        print_str(core, "\n");
-    } else {
-        print_str(core, &format!("Created signatures for {} functions\n", total));
-    }
-
+    if interactive { print_str(core, "\n"); } else { print_str(core, &format!("Created signatures for {} functions\n", total)); }
     true
 }
 

@@ -83,14 +83,14 @@ unsafe extern "C" fn warp_call(session: *mut RCorePluginSession, input: *const c
     if input.is_null() {
         return false;
     }
-    
+
     let input_str: &str = match CStr::from_ptr(input).to_str() {
         Ok(s) => s,
         Err(_) => return false,
     };
-    
+
     let core = (*session).core;
-    
+
     if input_str == "z?" || input_str == "z??" {
         if IN_ZHELP {
             return false;
@@ -107,11 +107,11 @@ unsafe extern "C" fn warp_call(session: *mut RCorePluginSession, input: *const c
         crate::cmd::print_str(core, "| zw[?]        manage WARP signatures\n");
         return true;
     }
-    
+
     if !input_str.starts_with("zw") {
         return false;
     }
-    
+
     std::panic::catch_unwind(|| {
         if let Some(ref mut container) = G_CONTAINER {
             handle_zw_command(core, container, input_str)
