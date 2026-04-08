@@ -32,10 +32,6 @@ impl FunctionGUID {
     pub fn as_bytes(&self) -> &[u8; 16] {
         self.guid.as_bytes()
     }
-
-    pub fn to_string(&self) -> String {
-        self.guid.to_string()
-    }
 }
 
 impl std::fmt::Display for FunctionGUID {
@@ -59,6 +55,8 @@ impl BasicBlockGUID {
     }
 }
 
+/// # Safety
+/// `core` must be a valid pointer to an r2 RCore instance.
 pub unsafe fn compute_function_guid(
     core: *mut RCore,
     fcn_addr: u64,

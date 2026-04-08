@@ -55,11 +55,15 @@ unsafe fn cmd_json(core: *mut RCore, cmd: &str) -> Option<serde_json::Value> {
     serde_json::from_str(&json_str).ok()
 }
 
+/// # Safety
+/// `core` must be a valid pointer to an r2 RCore instance.
 pub unsafe fn run_minimal_analysis(core: *mut RCore) {
     let cmd = CString::new("aa").unwrap();
     r_core_cmd(core, cmd.as_ptr());
 }
 
+/// # Safety
+/// `core` must be a valid pointer to an r2 RCore instance.
 pub unsafe fn ensure_functions_exist(core: *mut RCore) -> bool {
     if !get_all_functions(core).is_empty() {
         return true;
@@ -85,6 +89,8 @@ pub unsafe fn ensure_functions_exist(core: *mut RCore) -> bool {
     !get_all_functions(core).is_empty()
 }
 
+/// # Safety
+/// `core` must be a valid pointer to an r2 RCore instance.
 pub unsafe fn get_all_functions(core: *mut RCore) -> Vec<u64> {
     let mut functions = Vec::new();
     let Some(json) = cmd_json(core, "aflj") else {
@@ -102,6 +108,8 @@ pub unsafe fn get_all_functions(core: *mut RCore) -> Vec<u64> {
     functions
 }
 
+/// # Safety
+/// `core` must be a valid pointer to an r2 RCore instance.
 pub unsafe fn get_function_at(core: *mut RCore, addr: u64) -> Option<FunctionInfo> {
     let funcs = cmd_json(core, &format!("afij @ 0x{:x}", addr))?
         .as_array()?
@@ -121,6 +129,8 @@ pub unsafe fn get_function_at(core: *mut RCore, addr: u64) -> Option<FunctionInf
     })
 }
 
+/// # Safety
+/// `core` must be a valid pointer to an r2 RCore instance.
 pub unsafe fn get_function_blocks(core: *mut RCore, addr: u64) -> Vec<BasicBlockInfo> {
     let mut blocks = Vec::new();
     let Some(json) = cmd_json(core, &format!("afbj @ 0x{:x}", addr)) else {
@@ -137,6 +147,8 @@ pub unsafe fn get_function_blocks(core: *mut RCore, addr: u64) -> Vec<BasicBlock
     blocks
 }
 
+/// # Safety
+/// `core` must be a valid pointer to an r2 RCore instance.
 pub unsafe fn cache_function_disassembly(
     core: *mut RCore,
     fcn_addr: u64,
@@ -215,6 +227,8 @@ unsafe fn parse_regions_from_json(json: &serde_json::Value) -> Vec<RelocatableRe
     regions
 }
 
+/// # Safety
+/// `core` must be a valid pointer to an r2 RCore instance.
 pub unsafe fn get_relocatable_regions(core: *mut RCore) -> Vec<RelocatableRegion> {
     let empty = Vec::new();
     if let Some(json) = cmd_json(core, "iSSj") {
@@ -249,6 +263,8 @@ pub fn is_address_relocatable(regions: &[RelocatableRegion], address: u64) -> bo
     })
 }
 
+/// # Safety
+/// `core` must be a valid pointer to an r2 RCore instance.
 pub unsafe fn get_arch_info(core: *mut RCore) -> (String, String) {
     let json = match cmd_json(core, "ij") {
         Some(j) => j,
@@ -280,27 +296,31 @@ pub unsafe fn get_arch_info(core: *mut RCore) -> (String, String) {
     (bn_arch.to_string(), format!("{}-{}", os, suffix))
 }
 
+/// # Safety
+/// `core` must be a valid pointer to an r2 RCore instance.
 pub unsafe fn print_status(core: *mut RCore, msg: &str) {
     let c_str = CString::new(format!("{}\n", msg)).unwrap();
     let cons = crate::r2::ffi::r_core_get_cons(core);
     crate::r2::ffi::r_cons_print(cons, c_str.as_ptr());
 }
 
+/// # Safety
+/// `core` must be a valid pointer to an r2 RCore instance.
 pub unsafe fn is_interactive(core: *mut RCore) -> bool {
-    cmd_json(core, "e scr.interactive").is_some() || {
-        let cmd = CString::new("e scr.interactive").unwrap();
-        let result = r_core_cmd_str(core, cmd.as_ptr());
-        if result.is_null() {
-            return false;
-        }
-        let value = std::ffi::CStr::from_ptr(result)
-            .to_string_lossy()
-            .into_owned();
-        free(result as *mut _);
-        value.trim() == "true"
+    let cmd = CString::new("e scr.interactive").unwrap();
+    let result = r_core_cmd_str(core, cmd.as_ptr());
+    if result.is_null() {
+        return false;
     }
+    let value = std::ffi::CStr::from_ptr(result)
+        .to_string_lossy()
+        .into_owned();
+    free(result as *mut _);
+    value.trim() == "true"
 }
 
+/// # Safety
+/// `core` must be a valid pointer to an r2 RCore instance.
 pub unsafe fn apply_function_metadata(
     core: *mut RCore,
     addr: u64,

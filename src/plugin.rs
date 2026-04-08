@@ -47,11 +47,11 @@ unsafe impl Sync for RCorePluginStatic {}
 
 static WARP_CORE_PLUGIN: RCorePluginStatic = RCorePluginStatic {
     meta: RPluginMetaStatic {
-        name: b"warp\0".as_ptr() as *const c_char,
-        desc: b"WARP signature format support\0".as_ptr() as *const c_char,
-        author: b"WARP Contributors\0".as_ptr() as *const c_char,
-        version: b"0.1.0\0".as_ptr() as *const c_char,
-        license: b"LGPL-3.0\0".as_ptr() as *const c_char,
+        name: c"warp".as_ptr(),
+        desc: c"WARP signature format support".as_ptr(),
+        author: c"WARP Contributors".as_ptr(),
+        version: c"0.1.0".as_ptr(),
+        license: c"LGPL-3.0".as_ptr(),
         contact: std::ptr::null(),
         copyright: std::ptr::null(),
         status: R_PLUGIN_STATUS_OK,
@@ -67,7 +67,7 @@ pub static radare_plugin: RLibStructStatic = RLibStructStatic {
     data: std::ptr::addr_of!(WARP_CORE_PLUGIN) as *const c_void,
     version: R2_VERSION.as_ptr() as *const c_char,
     free: None,
-    pkgname: b"warp\0".as_ptr() as *const c_char,
+    pkgname: c"warp".as_ptr(),
     abiversion: R2_ABIVERSION,
 };
 

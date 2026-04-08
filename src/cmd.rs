@@ -6,6 +6,8 @@ use crate::r2::ffi::{free, r_cons_print, r_core_cmd_str, RCore};
 use crate::r2::guid::compute_function_guid;
 use crate::warp::container::WarpContainer;
 
+/// # Safety
+/// `core` must be a valid pointer to an r2 RCore instance.
 pub unsafe fn handle_zw_command(
     core: *mut RCore,
     container: &mut WarpContainer,
@@ -473,6 +475,8 @@ unsafe fn cmd_test(core: *mut RCore, container: &mut WarpContainer, args: &[&str
     }
 }
 
+/// # Safety
+/// `core` must be a valid pointer to an r2 RCore instance.
 pub unsafe fn print_str(core: *mut RCore, s: &str) {
     let c_str = CString::new(s).unwrap();
     let cons = crate::r2::ffi::r_core_get_cons(core);

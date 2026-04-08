@@ -70,10 +70,7 @@ impl WarpContainer {
         // Index functions by GUID
         for func in warp_data.functions {
             let guid = func.guid.bytes;
-            self.functions
-                .entry(guid)
-                .or_default()
-                .push(func);
+            self.functions.entry(guid).or_default().push(func);
             self.function_count += 1;
         }
 
@@ -337,6 +334,9 @@ impl WarpContainer {
     ///
     /// When multiple functions have the same GUID, use constraints to pick the best match.
     /// Returns (function index, match score) for each candidate.
+    ///
+    /// # Safety
+    /// `core` must be a valid pointer to an r2 RCore instance.
     pub unsafe fn match_with_constraints(
         &self,
         core: *mut RCore,
@@ -460,21 +460,27 @@ impl WarpContainer {
         sorted_funcs.sort();
 
         if let Ok(pos) = sorted_funcs.binary_search(&addr) {
-            let start = pos.saturating_sub(2);
-            for i in start..pos.min(sorted_funcs.len()) {
+            for &adj_addr in sorted_funcs
+                .iter()
+                .take(pos.min(sorted_funcs.len()))
+                .skip(pos.saturating_sub(2))
+            {
                 self.add_adjacency_constraints(
                     core,
-                    sorted_funcs[i],
+                    adj_addr,
                     func_start,
                     regions,
                     &mut constraints,
                 );
             }
-            let end = (pos + 3).min(sorted_funcs.len());
-            for i in (pos + 1)..end {
+            for &adj_addr in sorted_funcs
+                .iter()
+                .take((pos + 3).min(sorted_funcs.len()))
+                .skip(pos + 1)
+            {
                 self.add_adjacency_constraints(
                     core,
-                    sorted_funcs[i],
+                    adj_addr,
                     func_start,
                     regions,
                     &mut constraints,
@@ -549,11 +555,17 @@ impl WarpContainer {
     }
 
     /// Initialize the analysis cache (call before add_function_from_binary for batch operations)
+    ///
+    /// # Safety
+    /// `core` must be a valid pointer to an r2 RCore instance.
     pub unsafe fn initialize_cache(&mut self, core: *mut RCore) {
         self.cache.initialize(core);
     }
 
     /// Add a function from radare2 analysis using cached data
+    ///
+    /// # Safety
+    /// `core` must be a valid pointer to an r2 RCore instance.
     pub unsafe fn add_function_from_binary(
         &mut self,
         core: *mut RCore,
@@ -590,10 +602,7 @@ impl WarpContainer {
         func.constraints = constraints.into_iter().collect();
 
         let guid_bytes = func.guid.bytes;
-        self.functions
-            .entry(guid_bytes)
-            .or_default()
-            .push(func);
+        self.functions.entry(guid_bytes).or_default().push(func);
         self.function_count += 1;
 
         Ok(FunctionGUID::from_uuid(guid_uuid))
@@ -676,6 +685,9 @@ impl WarpContainer {
     }
 
     /// Legacy method for compatibility - uses uncached path
+    ///
+    /// # Safety
+    /// `core` must be a valid pointer to an r2 RCore instance.
     pub unsafe fn add_function_from_binary_legacy(
         &mut self,
         core: *mut RCore,
@@ -693,10 +705,7 @@ impl WarpContainer {
         func.constraints = Vec::new();
 
         let guid_bytes = func.guid.bytes;
-        self.functions
-            .entry(guid_bytes)
-            .or_default()
-            .push(func);
+        self.functions.entry(guid_bytes).or_default().push(func);
         self.function_count += 1;
 
         Ok(FunctionGUID::from_uuid(guid.guid))

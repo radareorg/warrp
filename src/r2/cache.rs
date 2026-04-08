@@ -40,6 +40,9 @@ impl AnalysisCache {
     }
 
     /// Initialize cache with all function info and xrefs
+    ///
+    /// # Safety
+    /// `core` must be a valid pointer to an r2 RCore instance.
     pub unsafe fn initialize(&mut self, core: *mut RCore) {
         if self.initialized {
             return;
@@ -182,6 +185,9 @@ impl AnalysisCache {
     }
 
     /// Get or compute function GUID
+    ///
+    /// # Safety
+    /// `core` must be a valid pointer to an r2 RCore instance.
     pub unsafe fn get_or_compute_guid(&self, core: *mut RCore, addr: u64) -> Option<Uuid> {
         // Check if already cached
         if let Some(&guid) = self.guids.borrow().get(&addr) {
@@ -198,6 +204,9 @@ impl AnalysisCache {
     }
 
     /// Get or cache function disassembly (all blocks with instruction bytes)
+    ///
+    /// # Safety
+    /// `core` must be a valid pointer to an r2 RCore instance.
     pub unsafe fn get_or_cache_disassembly(
         &self,
         core: *mut RCore,
