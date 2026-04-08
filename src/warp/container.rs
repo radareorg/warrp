@@ -72,7 +72,7 @@ impl WarpContainer {
             let guid = func.guid.bytes;
             self.functions
                 .entry(guid)
-                .or_insert_with(Vec::new)
+                .or_default()
                 .push(func);
             self.function_count += 1;
         }
@@ -165,7 +165,7 @@ impl WarpContainer {
         let functions = if let Some(funcs_arr) = obj.get("functions").and_then(|v| v.as_array()) {
             funcs_arr
                 .iter()
-                .filter_map(|f| Self::parse_json_function(f))
+                .filter_map(Self::parse_json_function)
                 .collect()
         } else {
             Vec::new()
@@ -592,7 +592,7 @@ impl WarpContainer {
         let guid_bytes = func.guid.bytes;
         self.functions
             .entry(guid_bytes)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(func);
         self.function_count += 1;
 
@@ -695,7 +695,7 @@ impl WarpContainer {
         let guid_bytes = func.guid.bytes;
         self.functions
             .entry(guid_bytes)
-            .or_insert_with(Vec::new)
+            .or_default()
             .push(func);
         self.function_count += 1;
 

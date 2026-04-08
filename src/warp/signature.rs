@@ -98,7 +98,7 @@ impl Constraint {
     pub fn from_function(guid: &FunctionGUID, offset: Option<i64>) -> Self {
         let constraint_guid = Uuid::new_v5(&NAMESPACE_CONSTRAINT, guid.bytes.as_ref());
         Self {
-            guid: Some(guid.clone()),
+            guid: Some(*guid),
             symbol: None,
             offset: offset.unwrap_or(0),
             constraint_guid: Some(constraint_guid),

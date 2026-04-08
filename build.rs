@@ -9,7 +9,7 @@ fn main() {
         for entry in std::fs::read_dir(&schemas_dir).unwrap() {
             let entry = entry.unwrap();
             let path = entry.path();
-            if path.extension().map_or(false, |e| e == "fbs") {
+            if path.extension().is_some_and(|e| e == "fbs") {
                 println!("cargo:rerun-if-changed={}", path.display());
             }
         }

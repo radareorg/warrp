@@ -163,7 +163,7 @@ impl AnalysisCache {
                     if let Some(func_addr) = self.find_function_containing(from) {
                         self.func_xrefs
                             .entry(func_addr)
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(XrefInfo {
                                 from,
                                 to,
@@ -228,21 +228,18 @@ impl AnalysisCache {
     pub fn get_adjacent_functions(&self, addr: u64) -> Vec<u64> {
         let mut adjacent = Vec::new();
 
-        match self.all_funcs_sorted.binary_search(&addr) {
-            Ok(pos) => {
-                // Up to 2 before
-                let start = pos.saturating_sub(2);
-                for i in start..pos {
-                    adjacent.push(self.all_funcs_sorted[i]);
-                }
-
-                // Up to 2 after
-                let end = (pos + 3).min(self.all_funcs_sorted.len());
-                for i in (pos + 1)..end {
-                    adjacent.push(self.all_funcs_sorted[i]);
-                }
+        if let Ok(pos) = self.all_funcs_sorted.binary_search(&addr) {
+            // Up to 2 before
+            let start = pos.saturating_sub(2);
+            for i in start..pos {
+                adjacent.push(self.all_funcs_sorted[i]);
             }
-            Err(_) => {}
+
+            // Up to 2 after
+            let end = (pos + 3).min(self.all_funcs_sorted.len());
+            for i in (pos + 1)..end {
+                adjacent.push(self.all_funcs_sorted[i]);
+            }
         }
 
         adjacent

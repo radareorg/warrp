@@ -72,7 +72,7 @@ unsafe fn cmd_list(core: *mut RCore, container: &WarpContainer) -> bool {
         }
     }
 
-    if let Some(ref target) = container.get_target() {
+    if let Some(target) = container.get_target() {
         print_str(
             core,
             &format!("Target: {} / {}\n", target.architecture, target.platform),
@@ -87,7 +87,7 @@ unsafe fn cmd_list(core: *mut RCore, container: &WarpContainer) -> bool {
 }
 
 unsafe fn cmd_load(core: *mut RCore, container: &mut WarpContainer, args: &[&str]) -> bool {
-    let path = match args.get(0) {
+    let path = match args.first() {
         Some(p) => *p,
         None => {
             show_error(core, "Usage: zw load <file.warp>");
@@ -114,7 +114,7 @@ unsafe fn cmd_load(core: *mut RCore, container: &mut WarpContainer, args: &[&str
 }
 
 unsafe fn cmd_save(core: *mut RCore, container: &mut WarpContainer, args: &[&str]) -> bool {
-    let path = match args.get(0) {
+    let path = match args.first() {
         Some(p) => *p,
         None => {
             show_error(core, "Usage: zw save <file.warp>");
@@ -255,35 +255,32 @@ unsafe fn cmd_match_single(core: *mut RCore, container: &WarpContainer, addr: u6
     let regions = analysis::get_relocatable_regions(core);
 
     // Try constraint-based matching first
-    match container.match_with_constraints(core, addr, &regions) {
-        Some(candidates) => {
+    if let Some(candidates) = container.match_with_constraints(core, addr, &regions) {
+        print_str(
+            core,
+            &format!("Found {} candidate(s) by GUID:\n", candidates.len()),
+        );
+
+        for (i, (func, _score)) in candidates.iter().enumerate() {
+            let marker = if i == 0 { "*" } else { " " };
             print_str(
                 core,
-                &format!("Found {} candidate(s) by GUID:\n", candidates.len()),
+                &format!(
+                    "  {}{}. {} ({} constraints)\n",
+                    marker,
+                    i + 1,
+                    func.symbol.name,
+                    func.constraints.len()
+                ),
             );
-
-            for (i, (func, _score)) in candidates.iter().enumerate() {
-                let marker = if i == 0 { "*" } else { " " };
-                print_str(
-                    core,
-                    &format!(
-                        "  {}{}. {} ({} constraints)\n",
-                        marker,
-                        i + 1,
-                        func.symbol.name,
-                        func.constraints.len()
-                    ),
-                );
-            }
-
-            // Apply best match
-            if let Some((best, _score)) = candidates.first() {
-                analysis::apply_function_metadata(core, addr, best);
-                print_str(core, &format!("Applied: {}\n", best.symbol.name));
-            }
-            return true;
         }
-        None => {}
+
+        // Apply best match
+        if let Some((best, _score)) = candidates.first() {
+            analysis::apply_function_metadata(core, addr, best);
+            print_str(core, &format!("Applied: {}\n", best.symbol.name));
+        }
+        return true;
     }
 
     // Fallback to GUID-only matching
@@ -425,7 +422,7 @@ unsafe fn cmd_info(core: *mut RCore, container: &WarpContainer) -> bool {
         &format!("Functions: {}\n", container.function_count()),
     );
 
-    if let Some(ref target) = container.get_target() {
+    if let Some(target) = container.get_target() {
         print_str(core, &format!("Architecture: {}\n", target.architecture));
         print_str(core, &format!("Platform: {}\n", target.platform));
     }
@@ -440,7 +437,7 @@ unsafe fn cmd_clear(core: *mut RCore, container: &mut WarpContainer) -> bool {
 }
 
 unsafe fn cmd_test(core: *mut RCore, container: &mut WarpContainer, args: &[&str]) -> bool {
-    let binary_path = match args.get(0) {
+    let binary_path = match args.first() {
         Some(p) => *p,
         None => {
             show_error(core, "Usage: zw test <binary>");
@@ -499,7 +496,7 @@ unsafe fn parse_address(core: *mut RCore, addr_str: &str) -> u64 {
             .to_string_lossy()
             .into_owned();
         free(result as *mut _);
-        return u64::from_str_radix(s.trim().trim_start_matches("0x"), 16).unwrap_or(0);
+        u64::from_str_radix(s.trim().trim_start_matches("0x"), 16).unwrap_or(0)
     } else if addr_str.starts_with("0x") || addr_str.starts_with("0X") {
         u64::from_str_radix(&addr_str[2..], 16).unwrap_or(0)
     } else {

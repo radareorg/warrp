@@ -397,7 +397,7 @@ fn is_32bit_register(reg: &str) -> bool {
 
 mod hex {
     pub fn decode(s: &str) -> Result<Vec<u8>, &'static str> {
-        if s.len() % 2 != 0 {
+        if !s.len().is_multiple_of(2) {
             return Err("Invalid hex string length");
         }
         let mut bytes = Vec::with_capacity(s.len() / 2);
