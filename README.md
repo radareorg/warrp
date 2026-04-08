@@ -1,6 +1,6 @@
 # WARP radare2 Plugin
 
-A native radare2 plugin for the WARP (https://github.com/Vector35/warp) signature format.
+A native radare2 plugin for the [WARP](https://github.com/Vector35/warp) signature format.
 
 ## Features
 
