@@ -18,7 +18,8 @@ pub struct BasicBlockInfo {
     pub size: u64,
 }
 
-/// Cached disassembly for a function's blocks (instruction bytes)
+pub const ADDRESS_RELOCATION_THRESHOLD: u64 = 0x10000;
+
 #[derive(Debug, Clone)]
 pub struct FunctionDisassembly {
     pub blocks: Vec<BlockDisassembly>,
@@ -27,7 +28,18 @@ pub struct FunctionDisassembly {
 #[derive(Debug, Clone)]
 pub struct BlockDisassembly {
     pub addr: u64,
-    pub instructions: Vec<Vec<u8>>,
+    pub instructions: Vec<InstructionInfo>,
+}
+
+#[derive(Debug, Clone)]
+pub struct InstructionInfo {
+    pub bytes: Vec<u8>,
+    pub ptr: Option<u64>,
+    pub refptr: bool,
+    pub jump: Option<u64>,
+    pub op_type: u32,
+    pub is_nop: bool,
+    pub is_self_move: bool,
 }
 
 pub unsafe fn run_minimal_analysis(core: *mut RCore) {
@@ -183,6 +195,8 @@ pub unsafe fn cache_function_disassembly(core: *mut RCore, fcn_addr: u64) -> Opt
     let obj = serde_json::from_str::<serde_json::Value>(&json_str).ok()?;
     let bbs = obj.get("bbs")?.as_array()?;
 
+    let arch_bits = get_arch_bits(core);
+
     let mut blocks = Vec::new();
     let empty_ops: Vec<serde_json::Value> = Vec::new();
 
@@ -195,13 +209,31 @@ pub unsafe fn cache_function_disassembly(core: *mut RCore, fcn_addr: u64) -> Opt
             if let Some(bytes_hex) = op.get("bytes").and_then(|v| v.as_str()) {
                 if !bytes_hex.is_empty() {
                     if let Ok(bytes) = hex::decode(bytes_hex) {
-                        instructions.push(bytes);
+                        let ptr = op.get("ptr").and_then(|v| v.as_u64());
+                        let refptr = op.get("refptr").and_then(|v| v.as_bool()).unwrap_or(false);
+                        let jump = op.get("jump").and_then(|v| v.as_u64());
+                        let op_type = op.get("type_num")
+                            .or_else(|| op.get("type"))
+                            .and_then(|v| v.as_u64())
+                            .unwrap_or(0) as u32;
+
+                        let is_nop = is_nop_from_analysis(op, &bytes);
+                        let is_self_move = is_self_move_from_analysis(op, &bytes, arch_bits);
+
+                        instructions.push(InstructionInfo {
+                            bytes,
+                            ptr,
+                            refptr,
+                            jump,
+                            op_type,
+                            is_nop,
+                            is_self_move,
+                        });
                     }
                 }
             }
         }
 
-        // Only include blocks that have instructions
         if !instructions.is_empty() {
             blocks.push(BlockDisassembly {
                 addr: bb_addr,
@@ -220,38 +252,76 @@ pub unsafe fn cache_function_disassembly(core: *mut RCore, fcn_addr: u64) -> Opt
 /// Get relocatable regions from sections/segments
 pub unsafe fn get_relocatable_regions(core: *mut RCore) -> Vec<RelocatableRegion> {
     let mut regions = Vec::new();
+    let mut use_sections = true;
 
-    // Get sections (executable and writable)
-    let cmd = CString::new("iSj").unwrap();
-    let result = r_core_cmd_str(core, cmd.as_ptr());
+    let seg_cmd = CString::new("iSSj").unwrap();
+    let seg_result = r_core_cmd_str(core, seg_cmd.as_ptr());
 
-    if result.is_null() {
-        return regions;
+    if !seg_result.is_null() {
+        let seg_json_str = std::ffi::CStr::from_ptr(seg_result)
+            .to_string_lossy()
+            .into_owned();
+        free(seg_result as *mut _);
+
+        if let Ok(segments) = serde_json::from_str::<Vec<serde_json::Value>>(&seg_json_str) {
+            let valid_segments: Vec<_> = segments.iter().filter(|seg| {
+                let vaddr = seg.get("vaddr").and_then(|v| v.as_u64()).unwrap_or(0);
+                let perm = seg.get("perm").and_then(|v| v.as_str()).unwrap_or("");
+                vaddr != 0 && !perm.is_empty()
+            }).collect();
+
+            if !valid_segments.is_empty() {
+                use_sections = false;
+                for seg in valid_segments {
+                    if let (Some(vaddr), Some(size)) = (
+                        seg.get("vaddr").and_then(|v| v.as_u64()),
+                        seg.get("vsize").and_then(|v| v.as_u64()).or_else(|| seg.get("size").and_then(|v| v.as_u64())),
+                    ) {
+                        regions.push(RelocatableRegion {
+                            start: vaddr,
+                            end: vaddr + size,
+                        });
+                    }
+                }
+            }
+        }
     }
 
-    let json_str = std::ffi::CStr::from_ptr(result)
-        .to_string_lossy()
-        .into_owned();
+    if use_sections {
+        let cmd = CString::new("iSj").unwrap();
+        let result = r_core_cmd_str(core, cmd.as_ptr());
 
-    free(result as *mut _);
+        if !result.is_null() {
+            let json_str = std::ffi::CStr::from_ptr(result)
+                .to_string_lossy()
+                .into_owned();
+            free(result as *mut _);
 
-    if let Ok(sections) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
-        for section in sections {
-            if let (Some(vaddr), Some(size)) = (
-                section.get("vaddr").and_then(|v| v.as_u64()),
-                section.get("vsize").and_then(|v| v.as_u64()),
-            ) {
-                // Include all sections as potential relocatable regions
-                // In practice, you'd filter to executable and/or writable sections
-                regions.push(RelocatableRegion {
-                    start: vaddr,
-                    end: vaddr + size,
-                });
+            if let Ok(sections) = serde_json::from_str::<Vec<serde_json::Value>>(&json_str) {
+                for section in sections {
+                    if let (Some(vaddr), Some(size)) = (
+                        section.get("vaddr").and_then(|v| v.as_u64()),
+                        section.get("vsize").and_then(|v| v.as_u64()).or_else(|| section.get("size").and_then(|v| v.as_u64())),
+                    ) {
+                        regions.push(RelocatableRegion {
+                            start: vaddr,
+                            end: vaddr + size,
+                        });
+                    }
+                }
             }
         }
     }
 
     regions
+}
+
+pub fn is_address_relocatable(regions: &[RelocatableRegion], address: u64) -> bool {
+    regions.iter().any(|range| {
+        (address >= range.start && address < range.end)
+            || (address > range.end && address > ADDRESS_RELOCATION_THRESHOLD && address <= range.end + ADDRESS_RELOCATION_THRESHOLD)
+            || (address < range.start && address > ADDRESS_RELOCATION_THRESHOLD && address >= range.start.saturating_sub(ADDRESS_RELOCATION_THRESHOLD))
+    })
 }
 
 /// Get current architecture info in Binary Ninja compatible format
@@ -361,6 +431,105 @@ pub unsafe fn apply_function_metadata(
     true
 }
 
+unsafe fn get_arch_bits(core: *mut RCore) -> u32 {
+    let cmd = CString::new("ij").unwrap();
+    let result = r_core_cmd_str(core, cmd.as_ptr());
+
+    if result.is_null() {
+        return 64;
+    }
+
+    let json_str = std::ffi::CStr::from_ptr(result)
+        .to_string_lossy()
+        .into_owned();
+    free(result as *mut _);
+
+    serde_json::from_str::<serde_json::Value>(&json_str)
+        .ok()
+        .and_then(|info| info.get("bin")?.get("bits")?.as_u64())
+        .unwrap_or(64) as u32
+}
+
+fn is_nop_from_analysis(op: &serde_json::Value, bytes: &[u8]) -> bool {
+    if bytes.len() == 1 && bytes[0] == 0x90 {
+        return true;
+    }
+    if bytes.len() == 2 && (bytes == &[0x66, 0x90] || bytes == &[0x87, 0xc0]) {
+        return true;
+    }
+    if bytes.len() == 4 && (bytes == &[0x1f, 0x20, 0x03, 0xd5]
+        || bytes == &[0x00, 0xf0, 0x01, 0xf0]
+        || bytes == &[0xbf, 0x00, 0xbf, 0x00])
+    {
+        return true;
+    }
+    if op.get("type").and_then(|v| v.as_str()) == Some("nop") {
+        return true;
+    }
+    false
+}
+
+fn is_self_move_from_analysis(op: &serde_json::Value, bytes: &[u8], arch_bits: u32) -> bool {
+    if bytes.len() < 2 {
+        return false;
+    }
+    let disasm = op.get("disasm").and_then(|v| v.as_str()).unwrap_or("");
+
+    if !is_self_move_mnemonic(disasm) {
+        return false;
+    }
+
+    if arch_bits == 64 {
+        if let Some(operands) = disasm.strip_prefix("mov ").or_else(|| disasm.strip_prefix("mov.w ")) {
+            let parts: Vec<&str> = operands.split(',').map(|s| s.trim()).collect();
+            if parts.len() == 2 {
+                let dst = parts[0];
+                let src = parts[1];
+                if dst == src {
+                    if is_32bit_register(dst) {
+                        return false;
+                    }
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    if let Some(operands) = disasm.strip_prefix("mov ").or_else(|| disasm.strip_prefix("mov.w ")) {
+        let parts: Vec<&str> = operands.split(',').map(|s| s.trim()).collect();
+        if parts.len() == 2 && parts[0] == parts[1] {
+            return true;
+        }
+    }
+
+    if bytes.len() >= 3 {
+        let has_rex_w = bytes[0] == 0x48 || bytes[0] == 0x4c
+            || bytes[0] == 0x49 || bytes[0] == 0x4d;
+        if has_rex_w && (bytes[1] == 0x89 || bytes[1] == 0x8b) {
+            let modrm = bytes[2];
+            let src = modrm & 0x7;
+            let dst = (modrm >> 3) & 0x7;
+            if src == dst {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn is_self_move_mnemonic(disasm: &str) -> bool {
+    disasm.starts_with("mov ") || disasm.starts_with("mov.w ")
+}
+
+fn is_32bit_register(reg: &str) -> bool {
+    matches!(reg,
+        "eax" | "ebx" | "ecx" | "edx" | "esi" | "edi" | "ebp" | "esp"
+        | "r8d" | "r9d" | "r10d" | "r11d" | "r12d" | "r13d" | "r14d" | "r15d"
+    )
+}
+
 /// Simple hex decoder module
 mod hex {
     pub fn decode(s: &str) -> Result<Vec<u8>, &'static str> {
@@ -378,5 +547,101 @@ mod hex {
         }
 
         Ok(bytes)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_address_relocatable_inside_region() {
+        let regions = vec![RelocatableRegion { start: 0x1000, end: 0x2000 }];
+        assert!(is_address_relocatable(&regions, 0x1500));
+    }
+
+    #[test]
+    fn test_address_relocatable_proximity_after() {
+        let regions = vec![RelocatableRegion { start: 0x10000, end: 0x20000 }];
+        assert!(is_address_relocatable(&regions, 0x20001));
+        assert!(is_address_relocatable(&regions, 0x2FFFF));
+        assert!(!is_address_relocatable(&regions, 0x100000));
+    }
+
+    #[test]
+    fn test_address_relocatable_proximity_before() {
+        let regions = vec![RelocatableRegion { start: 0x20000, end: 0x30000 }];
+        assert!(is_address_relocatable(&regions, 0x10001));
+        assert!(is_address_relocatable(&regions, 0x1FFFF));
+    }
+
+    #[test]
+    fn test_address_not_relocatable() {
+        let regions = vec![RelocatableRegion { start: 0x10000, end: 0x20000 }];
+        assert!(!is_address_relocatable(&regions, 0x100));
+    }
+
+    #[test]
+    fn test_nop_detection_single_byte() {
+        let op = serde_json::json!({});
+        assert!(is_nop_from_analysis(&op, &[0x90]));
+        assert!(!is_nop_from_analysis(&op, &[0x55]));
+    }
+
+    #[test]
+    fn test_nop_detection_two_byte() {
+        let op = serde_json::json!({});
+        assert!(is_nop_from_analysis(&op, &[0x66, 0x90]));
+        assert!(is_nop_from_analysis(&op, &[0x87, 0xc0]));
+    }
+
+    #[test]
+    fn test_nop_detection_arm64() {
+        let op = serde_json::json!({});
+        assert!(is_nop_from_analysis(&op, &[0x1f, 0x20, 0x03, 0xd5]));
+    }
+
+    #[test]
+    fn test_nop_from_type_field() {
+        let op = serde_json::json!({"type": "nop"});
+        assert!(is_nop_from_analysis(&op, &[0x55]));
+    }
+
+    #[test]
+    fn test_self_move_64bit_edi_not_blacklisted() {
+        let op = serde_json::json!({"disasm": "mov edi, edi"});
+        let bytes = vec![0x89, 0xff];
+        assert!(!is_self_move_from_analysis(&op, &bytes, 64));
+    }
+
+    #[test]
+    fn test_self_move_32bit_edi_blacklisted() {
+        let op = serde_json::json!({"disasm": "mov edi, edi"});
+        let bytes = vec![0x89, 0xff];
+        assert!(is_self_move_from_analysis(&op, &bytes, 32));
+    }
+
+    #[test]
+    fn test_self_move_64bit_rdi_blacklisted() {
+        let op = serde_json::json!({"disasm": "mov rdi, rdi"});
+        let bytes = vec![0x48, 0x89, 0xff];
+        assert!(is_self_move_from_analysis(&op, &bytes, 64));
+    }
+
+    #[test]
+    fn test_self_move_not_a_move() {
+        let op = serde_json::json!({"disasm": "push rbp"});
+        let bytes = vec![0x55];
+        assert!(!is_self_move_from_analysis(&op, &bytes, 64));
+    }
+
+    #[test]
+    fn test_32bit_register_detection() {
+        assert!(is_32bit_register("eax"));
+        assert!(is_32bit_register("edi"));
+        assert!(is_32bit_register("r8d"));
+        assert!(!is_32bit_register("rax"));
+        assert!(!is_32bit_register("rdi"));
+        assert!(!is_32bit_register("r8"));
     }
 }

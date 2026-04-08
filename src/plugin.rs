@@ -5,7 +5,7 @@ use crate::r2::ffi::{RCorePluginSession, R_LIB_TYPE_CORE, R_PLUGIN_STATUS_OK};
 use crate::warp::container::WarpContainer;
 
 const R2_VERSION: &str = "6.1.3\0";
-const R2_ABIVERSION: u32 = 77;
+const R2_ABIVERSION: u32 = 82;
 
 static mut G_CONTAINER: Option<WarpContainer> = None;
 
