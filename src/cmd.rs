@@ -93,7 +93,7 @@ unsafe fn cmd_load(
         Some(p) => *p,
         None => {
             show_error(core, "Usage: zw load <file.warp>");
-            return false;
+            return true;
         }
     };
     
@@ -107,7 +107,7 @@ unsafe fn cmd_load(
         }
         Err(e) => {
             show_error(core, &format!("Failed to load WARP file: {}", e));
-            false
+            true
         }
     }
 }
@@ -121,7 +121,7 @@ unsafe fn cmd_save(
         Some(p) => *p,
         None => {
             show_error(core, "Usage: zw save <file.warp>");
-            return false;
+            return true;
         }
     };
     
@@ -134,7 +134,7 @@ unsafe fn cmd_save(
         }
         Err(e) => {
             show_error(core, &format!("Failed to save WARP file: {}", e));
-            false
+            true
         }
     }
 }
@@ -146,12 +146,12 @@ unsafe fn cmd_match(
 ) -> bool {
     if container.function_count() == 0 {
         show_error(core, "No WARP signatures loaded. Use 'zw load' first.");
-        return false;
+        return true;
     }
     
     if !analysis::ensure_functions_exist(core) {
         show_error(core, "No functions found after analysis. Binary may be unsupported.");
-        return false;
+        return true;
     }
     
     let match_all = args.contains(&"-a");
@@ -167,7 +167,7 @@ unsafe fn cmd_match(
         let addr = parse_address(core, addr_str);
         if addr == 0 {
             show_error(core, "Invalid address");
-            return false;
+            return true;
         }
         
         cmd_match_single(core, container, addr)
@@ -180,7 +180,7 @@ unsafe fn cmd_match_all(core: *mut RCore, container: &WarpContainer) -> bool {
     let functions = analysis::get_all_functions(core);
     if functions.is_empty() {
         show_error(core, "No functions found in current binary.");
-        return false;
+        return true;
     }
     
     let regions = analysis::get_relocatable_regions(core);
@@ -293,7 +293,7 @@ unsafe fn cmd_match_single(
         Ok(g) => g,
         Err(e) => {
             show_error(core, &format!("Failed to compute function GUID: {}", e));
-            return false;
+            return true;
         }
     };
     
@@ -322,7 +322,7 @@ unsafe fn cmd_match_single(
         }
         Some(_) | None => {
             show_error(core, "No matching function found in WARP signatures.");
-            false
+            true
         }
     }
 }
@@ -345,7 +345,7 @@ unsafe fn cmd_create(
         let addr = parse_address(core, addr_str);
         if addr == 0 {
             show_error(core, "Invalid address");
-            return false;
+            return true;
         }
         
         cmd_create_single(core, container, addr)
@@ -355,12 +355,11 @@ unsafe fn cmd_create(
 unsafe fn cmd_create_all(core: *mut RCore, container: &mut WarpContainer) -> bool {
     if !analysis::ensure_functions_exist(core) {
         show_error(core, "No functions found after analysis. Binary may be unsupported.");
-        return false;
+        return true;
     }
     
     let interactive = analysis::is_interactive(core);
     
-    // Initialize cache once for all functions
     if interactive {
         print_str(core, "Initializing analysis cache...");
         crate::r2::ffi::r_cons_flush(
@@ -375,7 +374,7 @@ unsafe fn cmd_create_all(core: *mut RCore, container: &mut WarpContainer) -> boo
     
     if total == 0 {
         show_error(core, "No functions found in current binary.");
-        return false;
+        return true;
     }
     
     if interactive {
@@ -416,7 +415,6 @@ unsafe fn cmd_create_single(
     container: &mut WarpContainer,
     addr: u64,
 ) -> bool {
-    // Initialize cache for single function
     container.initialize_cache(core);
     
     match container.add_function_from_binary(core, addr) {
@@ -426,7 +424,7 @@ unsafe fn cmd_create_single(
         }
         Err(e) => {
             show_error(core, &format!("Failed to create signature: {}", e));
-            false
+            true
         }
     }
 }
@@ -459,7 +457,7 @@ unsafe fn cmd_test(
         Some(p) => *p,
         None => {
             show_error(core, "Usage: zw test <binary>");
-            return false;
+            return true;
         }
     };
     
@@ -467,7 +465,7 @@ unsafe fn cmd_test(
         Some(p) => *p,
         None => {
             show_error(core, "Usage: zw test <binary> <snapshot>");
-            return false;
+            return true;
         }
     };
     
@@ -480,7 +478,7 @@ unsafe fn cmd_test(
         }
         Err(e) => {
             show_error(core, &format!("Test failed: {}", e));
-            false
+            true
         }
     }
 }
