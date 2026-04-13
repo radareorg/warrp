@@ -3,10 +3,10 @@ use std::process::Command;
 
 fn r2_env(key: &str) -> String {
     String::from_utf8_lossy(
-        &Command::new("r2")
+        &Command::new("radare2")
             .args(["-H", key])
             .output()
-            .unwrap_or_else(|_| panic!("failed to run r2 -H {key}"))
+            .unwrap_or_else(|_| panic!("failed to run radare2 -H {key}"))
             .stdout,
     )
     .trim()
