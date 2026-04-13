@@ -1,28 +1,50 @@
-use std::path::PathBuf;
+use std::env;
+use std::process::Command;
 
 fn main() {
-    let schemas_dir = PathBuf::from("schemas");
+    let (_cflags, ldflags) = match Command::new("pkg-config")
+        .args(["--cflags", "r_core"])
+        .output()
+    {
+        Ok(output) if output.status.success() && !output.stdout.is_empty() => {
+            let cflags = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let ldflags_output = Command::new("pkg-config")
+                .arg("--libs")
+                .arg("r_core")
+                .output()
+                .expect("failed to run pkg-config --libs r_core");
+            let ldflags = String::from_utf8_lossy(&ldflags_output.stdout)
+                .trim()
+                .to_string();
+            (cflags, ldflags)
+        }
+        _ => {
+            let cflags = Command::new("r2")
+                .args(["-H", "R2_CFLAGS"])
+                .output()
+                .expect("failed to run r2 -H R2_CFLAGS");
+            let ldflags = Command::new("r2")
+                .args(["-H", "R2_LDFLAGS"])
+                .output()
+                .expect("failed to run r2 -H R2_LDFLAGS");
+            (
+                String::from_utf8_lossy(&cflags.stdout).trim().to_string(),
+                String::from_utf8_lossy(&ldflags.stdout).trim().to_string(),
+            )
+        }
+    };
 
-    if schemas_dir.exists() {
-        println!("cargo:rerun-if-changed=schemas/");
-
-        for entry in std::fs::read_dir(&schemas_dir).unwrap() {
-            let entry = entry.unwrap();
-            let path = entry.path();
-            if path.extension().is_some_and(|e| e == "fbs") {
-                println!("cargo:rerun-if-changed={}", path.display());
-            }
+    for flag in ldflags.split_whitespace() {
+        if let Some(path) = flag.strip_prefix("-L") {
+            println!("cargo:rustc-link-search={path}");
+        } else if let Some(lib) = flag.strip_prefix("-l") {
+            println!("cargo:rustc-link-lib={lib}");
         }
     }
 
-    // Add radare2 library search path
-    println!("cargo:rustc-link-search=/usr/local/lib");
+    if env::var("TARGET").unwrap_or_default().contains("windows") {
+        println!("cargo:rustc-link-lib=shlwapi");
+    }
 
-    // Print cargo directives for linking
-    // r_sign is part of r_anal, not a separate library
-    println!("cargo:rustc-link-lib=r_core");
-    println!("cargo:rustc-link-lib=r_anal");
-    println!("cargo:rustc-link-lib=r_io");
-    println!("cargo:rustc-link-lib=r_cons");
-    println!("cargo:rustc-link-lib=r_util");
+    println!("cargo:rerun-if-changed=build.rs");
 }

@@ -1,45 +1,21 @@
-# Makefile for WARP radare2 plugin
-
-# Detect OS
-UNAME_S := $(shell uname -s)
-ifeq ($(UNAME_S),Linux)
-	LIB_EXT = so
-endif
-ifeq ($(UNAME_S),Darwin)
-	LIB_EXT = dylib
-endif
-
-# Rust target
-ifeq ($(UNAME_S),Linux)
-	RUST_TARGET = x86_64-unknown-linux-gnu
-endif
-ifeq ($(UNAME_S),Darwin)
-	RUST_TARGET = x86_64-apple-darwin
-endif
-
-# radare2 plugin directory
-R2_PLUGINS = $(HOME)/.local/share/radare2/plugins
-
-.PPHONY: all build install clean test
-
-all: build
+R2_LIBEXT  ?= $(shell r2 -H R2_LIBEXT)
+R2_PLUGINS ?= $(shell r2 -H R2_USER_PLUGINS)
 
 build:
 	cargo build --release
-	ln -sf target/release/libcore_warp.$(LIB_EXT) core_warp.$(LIB_EXT)
+	ln -sf target/release/libcore_warp.$(R2_LIBEXT) core_warp.$(R2_LIBEXT)
 
 install: build
 	mkdir -p $(R2_PLUGINS)
-	cp target/release/libcore_warp.$(LIB_EXT) $(R2_PLUGINS)/core_warp.$(LIB_EXT)
+	cp target/release/libcore_warp.$(R2_LIBEXT) $(R2_PLUGINS)/core_warp.$(R2_LIBEXT)
 
 test:
 	cargo test
 
 clean:
 	cargo clean
-	rm -f core_warp.$(LIB_EXT)
+	rm -f core_warp.$(R2_LIBEXT)
 
-# Development targets
 fmt:
 	cargo fmt
 
@@ -48,5 +24,7 @@ check:
 
 clippy:
 	cargo clippy -- -D warnings
+
+all: build
 
 .PHONY: all build install clean test fmt check clippy

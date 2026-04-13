@@ -88,16 +88,16 @@ WARP uses UUIDv5-based function identification:
 
 ```
 ┌────────────────────────────────────────────────────────────────┐
-│                   radare2 (libr_core.so)                        │
+│                   radare2 (libr_core.so)                       │
 └─────────────────────────────┬──────────────────────────────────┘
                               │ FFI
 ┌─────────────────────────────▼──────────────────────────────────┐
-│            core_warp.so (Rust native plugin)                    │
+│            core_warp.so (Rust native plugin)                   │
 ├────────────────────────────────────────────────────────────────┤
-│  RCorePlugin → zw command handler                               │
+│            RCorePlugin → zw command handler                    │
 ├────────────────────────────────────────────────────────────────┤
 │  GUID Generator  │  WARP Container  │  r2 Integration          │
-│  (UUIDv5)        │  (File I/O)       │  (FFI bindings)          │
+│  (UUIDv5)        │  (File I/O)      │  (FFI bindings)          │
 └────────────────────────────────────────────────────────────────┘
 ```
 
@@ -109,21 +109,19 @@ cargo test --lib
 
 ## Development Status
 
-| Feature                          | Status                               |
-| -------------------------------- | ------------------------------------ |
-| Plugin registration              | ✅ Complete                          |
-| Command handler (`zw` namespace) | ✅ Complete                          |
-| GUID generation (UUIDv5)         | ✅ Complete                          |
-| WARP file loading                | ✅ Complete (FlatBuffers)            |
-| WARP file saving                 | ✅ Complete                          |
-| FlatBuffers I/O                  | ✅ Complete                          |
-| Function matching                | ✅ Complete                          |
-| Metadata application             | ✅ Complete (names, comments)        |
-| Progress display                 | ✅ Complete (interactive mode)       |
-| Constraint collection            | ✅ Complete (adjacency + call sites) |
-| Constraint matching              | ✅ Complete (disambiguation)         |
-| Performance optimization         | ✅ Complete (caching, batch fetch)   |
-| GUID snapshot testing            | ❌ TODO                              |
+- [x] Plugin registration
+- [x] Command handler (`zw` namespace)
+- [x] GUID generation (UUIDv5)
+- [x] WARP file loading (FlatBuffers)
+- [x] WARP file saving
+- [x] FlatBuffers I/O
+- [x] Function matching
+- [x] Metadata application (names, comments)
+- [x] Progress display (interactive mode)
+- [x] Constraint collection (adjacency + call sites)
+- [x] Constraint matching (disambiguation)
+- [x] Performance optimization (caching, batch fetch)
+- [ ] GUID snapshot testing
 
 ## References
 
