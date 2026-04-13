@@ -9,11 +9,10 @@ install: build
 	cp target/release/libcore_warp.$(R2_LIBEXT) $(R2_PLUGINS)/core_warp.$(R2_LIBEXT)
 
 test:
-	cargo test
+	cargo test --lib
 
 clean:
 	cargo clean
-	rm -f core_warp.$(R2_LIBEXT)
 
 fmt:
 	cargo fmt

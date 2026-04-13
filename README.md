@@ -27,34 +27,31 @@ cargo build --release
 ### Install
 
 ```bash
-# Linux/macOS
-mkdir -p ~/.local/share/radare2/plugins
-cp target/release/libcore_warp.so ~/.local/share/radare2/plugins/
-# or on macOS:
-# cp target/release/libcore_warp.dylib ~/.local/share/radare2/plugins/
+make install
 ```
 
 ## Usage
 
 ### Commands
 
-```
-zw               # List loaded WARP containers
-zw load <file>   # Load WARP signature file
-zw save <file>   # Save signatures to WARP file
-zw match [addr]  # Match function at address (or all with -a)
-zw create [addr] # Create WARP signature for function(s)
-zw test <bin> <snap> # Test GUID generation
-zw info           # Show container/target info
-zw clear          # Clear loaded containers
-zw help           # Show help
+```bash
+Usage: zw  # Manage WARP signatures
+zw                list loaded WARP containers
+zw?               show this help                                                               zw load <file>    load WARP signature file (.warp)                                             zw save <file>    save current signatures to WARP file
+zw match [addr]   match function at address
+zw match -a       match all functions in binary
+zw create [addr]  create WARP signature for function
+zw create -a      create signatures for all functions
+zw test <binary>  test GUID generation against snapshot
+zw info           show container/target info
+zw clear          clear loaded containers
 ```
 
 **Note:** WARP uses exact GUID matching which requires function boundaries to be known. When you run `zw match` or `zw create`, the plugin will automatically run minimal analysis (`aa`) if no functions are found in the binary. If you want deeper analysis beforehand, run `aa` or `aaa` manually.
 
 ### Examples
 
-```r2
+```bash
 # Load a WARP signature file
 zw load /path/to/signatures.warp
 
@@ -101,13 +98,7 @@ WARP uses UUIDv5-based function identification:
 └────────────────────────────────────────────────────────────────┘
 ```
 
-## Testing
-
-```bash
-cargo test --lib
-```
-
-## Development Status
+## Roadmap
 
 - [x] Plugin registration
 - [x] Command handler (`zw` namespace)
