@@ -1,38 +1,20 @@
 use std::env;
 use std::process::Command;
 
+fn r2_env(key: &str) -> String {
+    String::from_utf8_lossy(
+        &Command::new("r2")
+            .args(["-H", key])
+            .output()
+            .unwrap_or_else(|_| panic!("failed to run r2 -H {key}"))
+            .stdout,
+    )
+    .trim()
+    .to_string()
+}
+
 fn main() {
-    let (_cflags, ldflags) = match Command::new("pkg-config")
-        .args(["--cflags", "r_core"])
-        .output()
-    {
-        Ok(output) if output.status.success() && !output.stdout.is_empty() => {
-            let cflags = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            let ldflags_output = Command::new("pkg-config")
-                .arg("--libs")
-                .arg("r_core")
-                .output()
-                .expect("failed to run pkg-config --libs r_core");
-            let ldflags = String::from_utf8_lossy(&ldflags_output.stdout)
-                .trim()
-                .to_string();
-            (cflags, ldflags)
-        }
-        _ => {
-            let cflags = Command::new("r2")
-                .args(["-H", "R2_CFLAGS"])
-                .output()
-                .expect("failed to run r2 -H R2_CFLAGS");
-            let ldflags = Command::new("r2")
-                .args(["-H", "R2_LDFLAGS"])
-                .output()
-                .expect("failed to run r2 -H R2_LDFLAGS");
-            (
-                String::from_utf8_lossy(&cflags.stdout).trim().to_string(),
-                String::from_utf8_lossy(&ldflags.stdout).trim().to_string(),
-            )
-        }
-    };
+    let ldflags = r2_env("R2_LDFLAGS");
 
     for flag in ldflags.split_whitespace() {
         if let Some(path) = flag.strip_prefix("-L") {
@@ -45,6 +27,14 @@ fn main() {
     if env::var("TARGET").unwrap_or_default().contains("windows") {
         println!("cargo:rustc-link-lib=shlwapi");
     }
+
+    let r2_version = r2_env("R2_VERSION");
+    let r2_abiversion: u32 = r2_env("R2_ABIVERSION")
+        .parse()
+        .expect("R2_ABIVERSION is not a valid u32");
+
+    println!("cargo:rustc-env=R2_VERSION={r2_version}");
+    println!("cargo:rustc-env=R2_ABIVERSION={r2_abiversion}");
 
     println!("cargo:rerun-if-changed=build.rs");
 }

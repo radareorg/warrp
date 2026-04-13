@@ -3,7 +3,6 @@ R2_PLUGINS ?= $(shell r2 -H R2_USER_PLUGINS)
 
 build:
 	cargo build --release
-	ln -sf target/release/libcore_warp.$(R2_LIBEXT) core_warp.$(R2_LIBEXT)
 
 install: build
 	mkdir -p $(R2_PLUGINS)

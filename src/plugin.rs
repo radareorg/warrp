@@ -6,8 +6,17 @@ use crate::r2::ffi::{
 };
 use crate::warp::container::WarpContainer;
 
-const R2_VERSION: &str = "6.1.3\0";
-const R2_ABIVERSION: u32 = 82;
+const R2_VERSION: &str = concat!(env!("R2_VERSION"), "\0");
+static R2_ABIVERSION: u32 = {
+    let bytes = env!("R2_ABIVERSION").as_bytes();
+    let mut val: u32 = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        val = val * 10 + (bytes[i] - b'0') as u32;
+        i += 1;
+    }
+    val
+};
 
 static mut G_CONTAINER: Option<WarpContainer> = None;
 static mut IN_ZHELP: bool = false;
