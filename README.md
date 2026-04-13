@@ -37,7 +37,9 @@ make install
 ```bash
 Usage: zw  # Manage WARP signatures
 zw                list loaded WARP containers
-zw?               show this help                                                               zw load <file>    load WARP signature file (.warp)                                             zw save <file>    save current signatures to WARP file
+zw?               show this help
+zw load <file>    load WARP signature file (.warp)
+zw save <file>    save current signatures to WARP file
 zw match [addr]   match function at address
 zw match -a       match all functions in binary
 zw create [addr]  create WARP signature for function
