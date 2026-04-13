@@ -17,14 +17,13 @@ A native radare2 plugin for the [WARP](https://github.com/Vector35/warp) signatu
 1. Rust toolchain (1.70+): https://rustup.rs/
 2. radare2 (6.0+): https://github.com/radareorg/radare2
 
-### Build
+### From r2pm (recommended)
 
 ```bash
-cd warp-r2
-cargo build --release
+r2pm -Uci warrp
 ```
 
-### Install
+### From source
 
 ```bash
 make install
