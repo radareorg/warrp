@@ -8,10 +8,16 @@ ifeq ($(R2_LIBEXT),dll)
 install: build
 	if not exist "$(R2_PLUGINS)" mkdir "$(R2_PLUGINS)"
 	copy target\release\core_warp.$(R2_LIBEXT) $(R2_PLUGINS)\core_warp.$(R2_LIBEXT)
+
+uninstall:
+	if exist "$(R2_PLUGINS)\core_warp.$(R2_LIBEXT)" del "$(R2_PLUGINS)\core_warp.$(R2_LIBEXT)"
 else
 install: build
 	mkdir -p $(R2_PLUGINS)
 	cp target/release/libcore_warp.$(R2_LIBEXT) $(R2_PLUGINS)/libcore_warp.$(R2_LIBEXT)
+
+uninstall:
+	rm -f $(R2_PLUGINS)/libcore_warp.$(R2_LIBEXT)
 endif
 
 test:
