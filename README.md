@@ -113,6 +113,7 @@ WARP uses UUIDv5-based function identification:
 - [x] Constraint collection (adjacency + call sites)
 - [x] Constraint matching (disambiguation)
 - [x] Performance optimization (caching, batch fetch)
+- [ ] Add network server support
 - [ ] GUID snapshot testing
 
 ## References
