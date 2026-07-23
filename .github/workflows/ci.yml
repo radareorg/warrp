@@ -1,0 +1,142 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-package:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Linux x86_64
+            os: ubuntu-24.04
+            extension: so
+            library: target/release/libr2warp.so
+            asset: libr2warp-linux-x86_64.so
+          - name: macOS x86_64
+            os: macos-15-intel
+            extension: dylib
+            library: target/release/libr2warp.dylib
+            asset: libr2warp-macos-x86_64.dylib
+          - name: macOS ARM64
+            os: macos-14
+            extension: dylib
+            library: target/release/libr2warp.dylib
+            asset: libr2warp-macos-arm64.dylib
+          - name: Windows x86_64
+            os: windows-2022
+            extension: dll
+            library: target/release/r2warp.dll
+            asset: r2warp-windows-x86_64.dll
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ runner.arch }}-cargo-${{ hashFiles('Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-${{ runner.arch }}-cargo-
+
+      - name: Install radare2
+        uses: radareorg/github-actions@v3
+
+      - name: Check formatting
+        if: runner.os == 'Linux'
+        run: cargo fmt --check
+
+      - name: Run unit tests
+        run: cargo test --locked
+
+      - name: Run Clippy
+        if: runner.os == 'Linux'
+        run: cargo clippy --all-targets --locked -- -D warnings
+
+      - name: Build release plugin
+        run: cargo build --locked --release
+
+      - name: Verify installed plugin
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          make install
+          test -f "$(r2 -H R2_USER_PLUGINS)/libr2warp.${{ matrix.extension }}"
+          r2 -q -c 'L~warp;zw?' /bin/ls
+
+      - name: Verify installed plugin on Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $plugins = (r2 -H R2_USER_PLUGINS).Trim()
+          New-Item -ItemType Directory -Force -Path $plugins | Out-Null
+          Copy-Item target\release\r2warp.dll "$plugins\r2warp.dll"
+          r2 -q -c 'L~warp;zw?' "$env:WINDIR\System32\cmd.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Package Unix release asset
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "${{ matrix.library }}" "dist/${{ matrix.asset }}"
+          shasum -a 256 "dist/${{ matrix.asset }}" > "dist/${{ matrix.asset }}.sha256"
+
+      - name: Package Windows release asset
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $asset = "dist\${{ matrix.asset }}"
+          Copy-Item target\release\r2warp.dll $asset
+          $hash = (Get-FileHash -Algorithm SHA256 $asset).Hash.ToLower()
+          "$hash  ${{ matrix.asset }}" | Set-Content "$asset.sha256"
+
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: r2warp-${{ matrix.os }}
+          path: |
+            dist/${{ matrix.asset }}
+            dist/${{ matrix.asset }}.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: Publish GitHub Release
+    needs: test-and-package
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download verified artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: r2warp-*
+          merge-multiple: true
+          path: dist
+
+      - name: Publish release assets
+        uses: softprops/action-gh-release@v3
+        with:
+          generate_release_notes: true
+          files: dist/*
