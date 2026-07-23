@@ -9,6 +9,7 @@ use crate::r2::analysis::RelocatableRegion;
 use crate::r2::cache::AnalysisCache;
 use crate::r2::ffi::RCore;
 use crate::r2::guid::FunctionGUID as R2FunctionGUID;
+use crate::warp::network::NetworkClient;
 use crate::warp::signature::{Constraint, Function, FunctionGUID, Symbol};
 use crate::warp::types::Target;
 
@@ -27,6 +28,7 @@ pub struct WarpContainer {
     target: Option<Target>,
     functions: HashMap<[u8; 16], Vec<Function>>,
     function_count: usize,
+    network: NetworkClient,
     pub cache: AnalysisCache,
 }
 
@@ -37,6 +39,7 @@ impl WarpContainer {
             target: None,
             functions: HashMap::new(),
             function_count: 0,
+            network: NetworkClient::from_environment(),
             cache: AnalysisCache::new(),
         }
     }
@@ -49,9 +52,32 @@ impl WarpContainer {
         file.read_to_end(&mut bytes)
             .map_err(|e| format!("Failed to read file: {}", e))?;
 
-        // Parse WARP file (FlatBuffers format)
-        let warp_data = Self::parse_warp_file(&bytes)?;
+        self.load_bytes(&bytes, path.display().to_string())
+            .map(|_| ())
+    }
 
+    /// Load a WARP response received from a server.
+    ///
+    /// The response is indexed exactly like a local WARP file so normal matching
+    /// and constraint disambiguation work without a separate remote code path.
+    pub fn load_network_response(&mut self, bytes: &[u8], origin: &str) -> Result<usize, String> {
+        let warp_data = Self::parse_warp_file(bytes)?;
+        // A query with no matches may be represented by an empty WARP file. Do
+        // not let that response replace the target of an otherwise empty local
+        // container with the default "unknown" target.
+        if warp_data.functions.is_empty() {
+            return Ok(0);
+        }
+        self.load_data(warp_data, format!("remote:{}", origin))
+    }
+
+    fn load_bytes(&mut self, bytes: &[u8], path: String) -> Result<usize, String> {
+        // Parse WARP file (FlatBuffers format)
+        let warp_data = Self::parse_warp_file(bytes)?;
+        self.load_data(warp_data, path)
+    }
+
+    fn load_data(&mut self, warp_data: WarpData, path: String) -> Result<usize, String> {
         // Check target compatibility
         if let Some(ref current_target) = self.target {
             if !current_target.matches(&warp_data.target) {
@@ -67,6 +93,8 @@ impl WarpContainer {
             self.target = Some(warp_data.target.clone());
         }
 
+        let loaded_count = warp_data.functions.len();
+
         // Index functions by GUID
         for func in warp_data.functions {
             let guid = func.guid.bytes;
@@ -75,11 +103,11 @@ impl WarpContainer {
         }
 
         self.loaded_files.push(WarpFile {
-            path: path.display().to_string(),
+            path,
             target: warp_data.target,
         });
 
-        Ok(())
+        Ok(loaded_count)
     }
 
     /// Parse WARP file using the warp crate
@@ -186,11 +214,9 @@ impl WarpContainer {
         Some(Function::new(guid, Symbol::function(name)))
     }
 
-    /// Save signatures to a WARP file
-    pub fn save(&self, path: &Path) -> Result<(), String> {
+    /// Serialize all loaded and newly created signatures as a WARP flatbuffer.
+    pub fn to_warp_bytes(&self) -> Result<Vec<u8>, String> {
         use std::collections::HashSet;
-        use std::fs::File;
-        use std::io::Write;
         use uuid::Uuid;
         use warp::chunk::{Chunk, ChunkKind, CompressionType};
         use warp::signature::chunk::SignatureChunk;
@@ -311,8 +337,15 @@ impl WarpContainer {
         // Create WARP file
         let warp_file = WarpFile::new(WarpFileHeader::new(), vec![chunk]);
 
-        // Serialize to bytes
-        let bytes = warp_file.to_bytes();
+        Ok(warp_file.to_bytes())
+    }
+
+    /// Save signatures to a WARP file
+    pub fn save(&self, path: &Path) -> Result<(), String> {
+        use std::fs::File;
+        use std::io::Write;
+
+        let bytes = self.to_warp_bytes()?;
 
         // Write to file
         let mut file = File::create(path).map_err(|e| format!("Failed to create file: {}", e))?;
@@ -369,7 +402,7 @@ impl WarpContainer {
             .collect();
 
         // Sort by score descending
-        scored.sort_by(|a, b| b.1.cmp(&a.1));
+        scored.sort_by_key(|candidate| std::cmp::Reverse(candidate.1));
 
         Some(scored)
     }
@@ -717,6 +750,20 @@ impl WarpContainer {
         self.functions.clear();
         self.target = None;
         self.function_count = 0;
+    }
+
+    /// Configure the WARP server endpoint for the lifetime of this radare2 session.
+    pub fn set_server_url(&mut self, server_url: &str) -> Result<(), String> {
+        self.network.set_server_url(server_url)
+    }
+
+    /// Configure or clear the WARP API key for the lifetime of this radare2 session.
+    pub fn set_server_token(&mut self, token: Option<String>) {
+        self.network.set_token(token);
+    }
+
+    pub fn network_client(&self) -> &NetworkClient {
+        &self.network
     }
 
     /// Get list of loaded files

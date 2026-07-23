@@ -1,4 +1,4 @@
-# WARRP
+# r2warp
 
 A native radare2 plugin for the [WARP](https://github.com/Vector35/warp) signature format.
 
@@ -20,7 +20,7 @@ A native radare2 plugin for the [WARP](https://github.com/Vector35/warp) signatu
 ### From r2pm (recommended)
 
 ```bash
-r2pm -Uci warrp
+r2pm -Uci r2warp
 ```
 
 ### From source
@@ -43,6 +43,12 @@ zw match [addr]   match function at address
 zw match -a       match all functions in binary
 zw create [addr]  create WARP signature for function
 zw create -a      create signatures for all functions
+zw server [url]   show or set the WARP server for this session
+zw auth [token]   show/set API key; use 'zw auth clear' to forget it
+zw sources        list WARP server sources
+zw source create <name>  create a writable WARP server source
+zw pull [source-uuid] [--current]  fetch matching server signatures
+zw push <source-uuid> [commit-name]  upload current signatures
 zw test <binary>  test GUID generation against snapshot
 zw info           show container/target info
 zw clear          clear loaded containers
@@ -69,6 +75,31 @@ zw create -a
 zw save output.warp
 ```
 
+### WARP server
+
+r2warp connects to `https://warp.binary.ninja` by default. Configure a different server or an API key for the current radare2 session with `zw server` and `zw auth`; both settings can also be supplied before starting radare2:
+
+```bash
+export R2WARP_SERVER_URL=https://warp.binary.ninja
+export R2WARP_API_TOKEN='your-api-key'
+```
+
+`zw pull` analyzes the current binary as needed, queries the server with its function GUIDs, and loads any matching WARP signatures into the normal matcher. Unrestricted pulls only use sources tagged `official` or `trusted`; provide a source UUID to select a particular source, or `--current` to query only the function at the seek address. `zw push` uploads every signature currently in the container to the specified source; creating a source and pushing require an API key.
+
+```bash
+# Check the configured server and list visible sources
+zw server
+zw sources
+
+# Pull matches for this binary, or only the current function from a source
+zw pull
+zw pull 01234567-89ab-cdef-0123-456789abcdef --current
+
+# Create a source, then upload the signatures created or loaded in this session
+zw source create my-signatures
+zw push 01234567-89ab-cdef-0123-456789abcdef initial-import
+```
+
 ## WARP Format
 
 WARP uses UUIDv5-based function identification:
@@ -90,7 +121,7 @@ WARP uses UUIDv5-based function identification:
 └─────────────────────────────┬──────────────────────────────────┘
                               │ FFI
 ┌─────────────────────────────▼──────────────────────────────────┐
-│            core_warp.so (Rust native plugin)                   │
+│              r2warp.so (Rust native plugin)                    │
 ├────────────────────────────────────────────────────────────────┤
 │            RCorePlugin → zw command handler                    │
 ├────────────────────────────────────────────────────────────────┤
@@ -113,7 +144,7 @@ WARP uses UUIDv5-based function identification:
 - [x] Constraint collection (adjacency + call sites)
 - [x] Constraint matching (disambiguation)
 - [x] Performance optimization (caching, batch fetch)
-- [ ] Add network server support
+- [x] Network server support (status, source management, pull, push)
 - [ ] GUID snapshot testing
 
 ## References

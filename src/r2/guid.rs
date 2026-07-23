@@ -17,7 +17,7 @@ pub struct FunctionGUID {
 impl FunctionGUID {
     pub fn from_basic_blocks(block_guids: &[BasicBlockGUID]) -> Self {
         let mut sorted_guids: Vec<_> = block_guids.to_vec();
-        sorted_guids.sort_by(|a, b| a.addr.cmp(&b.addr));
+        sorted_guids.sort_by_key(|guid| guid.addr);
 
         let bytes: Vec<u8> = sorted_guids
             .iter()
